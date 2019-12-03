@@ -1,0 +1,452 @@
+---
+title: "Pushshift.io API"
+author: "Alex Richardson"
+date: "10/20/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(reticulate)
+require(rvest)
+require(tidyverse)
+require(here)
+require(skimr)
+require(lubridate)
+require(tidytext)
+require(reshape2)
+require(topicmodels)
+require(quanteda)
+require(tictoc)
+```
+
+```{r Scraping usernames and karmas}
+
+ raw = read_html("https://www.reddit.com/wiki/suspiciousaccounts")
+table = raw %>% 
+  html_nodes(.,xpath="/html/body/div[1]/div/div/div/div[2]/div/div/div/div[2]/div[3]/div[1]/div[2]/div/div[1]/div/table") %>% 
+  html_table()
+table = data.frame(table)
+```
+
+```{r Getting rid of "/u" and making a list of usernames}
+usernamelist = c()
+for(n in 1:length(table$Username)){
+  table$Username[n] = str_remove(table$Username[n], "u/")
+  usernamelist = append(usernamelist, table$Username[n])
+}
+
+write_csv(table, "table-of-usernames.csv")
+
+table
+```
+
+
+```{python setup}
+import psaw
+import datetime as dt
+
+from psaw import PushshiftAPI
+
+api = PushshiftAPI()
+
+```
+
+
+```{python Pulling in Threadlist}
+
+pyusernamelist = r.usernamelist
+
+threadlist = []
+for n in pyusernamelist:
+  templist = list(api.search_submissions(
+                            author=n,
+                            filter=['url','author', 'title', 'subreddit', 'id']
+                            ))
+  threadlist.append(templist)
+  
+
+  
+```
+
+```{r Cleaning Threadlist a Bit}
+threadlist = py$threadlist
+cleaner_threadlist = c()
+for (n in threadlist){
+  for (r in n){
+      cleaner_threadlist = append(cleaner_threadlist, r)
+  }
+}
+print(cleaner_threadlist[[1]]$id)
+```
+
+```{r Cleaning them the rest of the way}
+cleanest_threadlist = c()
+author = c()
+date = c()
+subreddit = c()
+title = c()
+url = c()
+id = c()
+tholder = c()
+aholder = c()
+dholder = c()
+uholder = c()
+sholder = c()
+iholder = c()
+for (o in cleaner_threadlist){
+  author = as.character(o$author)
+  date = as.character(o$created)
+  title = as.character(o$title)
+  subreddit = as.character(o$subreddit)
+  url = as.character(o$url)
+  id = as.character(o$id)
+  tholder = append(tholder, title)
+  aholder = append(aholder, author)
+  dholder = append(dholder, date)
+  uholder = append(uholder, url)
+  sholder = append(sholder, subreddit)
+  iholder = append(iholder, id)
+}
+tholder = as.data.frame(tholder)
+aholder = as.data.frame(aholder)
+dholder = as.data.frame(dholder)
+uholder = as.data.frame(uholder)
+sholder = as.data.frame(sholder)
+iholder = as.data.frame(iholder)
+
+cleanest_threadlist = bind_cols(tholder, aholder, dholder, uholder, sholder, iholder)
+cleanest_threadlist = rename(cleanest_threadlist, "Title" = tholder, "Author" = aholder, "Date" = dholder, "URL" = uholder, "Subreddit" = sholder, "ID" = iholder)
+head(cleanest_threadlist)
+
+idlist = as.character(cleanest_threadlist$ID)
+write_csv(cleanest_threadlist, here("Threadlist.csv"))
+```
+
+```{r Just importing something to deal with the python problem...}
+idlist = read_csv("propthreads.csv")
+
+idlist = idlist %>% select("Index" = "X1", "Title" = "0", "Author" = "0_1", "Created" = "0_2", "Link" = "0_3", "Subreddit" = "0_4", "id" = "0_5", "num_comments" = "0_6") %>% mutate(Created = as_datetime(Created))
+
+arrange(idlist, desc(num_comments))
+
+head(idlist)
+```
+
+
+```{python Pulling in Comment Author Gens}
+pyidlist = r.idlist
+
+x = 0
+comment_author_list = []
+for n in pyidlist:
+  print(n)
+  temp2list = api.search_comments(
+                            id=n,
+                            filter=['author','id','subreddit','title']
+                            )
+  print(x)
+  x += 1
+  comment_author_list.append(temp2list)
+
+```
+
+```{python Pulling in Comment Author List}
+caches_list = []
+max_response_cache = 100
+cache = []
+for c in comment_author_list:
+    for d in c:
+      cache.append(d)
+      if len(cache) >= max_response_cache:
+        break
+    caches_list.append(cache)
+```
+
+
+```{r Cleaning Comment Author List}
+final_cal = c()
+author = c()
+date = c()
+subreddit = c()
+title = c()
+id = c()
+tholder = c()
+aholder = c()
+dholder = c()
+sholder = c()
+iholder = c()
+for (n in caches_list){
+  for (o in n){
+    author = as.character(o$author)
+    date = as.character(o$created)
+    subreddit = as.character(o$subreddit)
+    id = as.character(o$id)
+    aholder = append(aholder, author)
+    dholder = append(dholder, date)
+    sholder = append(sholder, subreddit)
+    iholder = append(iholder, id)
+  }
+}
+aholder = as.data.frame(aholder)
+dholder = as.data.frame(dholder)
+sholder = as.data.frame(sholder)
+iholder = as.data.frame(iholder)
+
+final_cal = bind_cols(tholder, aholder, dholder, sholder, iholder)
+final_cal = rename(final_cal, "Author" = aholder, "Date" = dholder, "Subreddit" = sholder, "ID" = iholder)
+head(final_cal)
+
+write_csv(final_cal, here("Comment-Author-List.csv"))
+
+```
+
+```{r Grabbing Unique Authors}
+
+final_cal <- read_csv(here("Comment-Author-List.csv"))
+
+final_cal = final_cal %>% mutate(AuthDup = as.numeric(duplicated(Author))) %>% filter(AuthDup==0)
+comment_author_list = final_cal$Author
+
+write_csv(final_cal, here("Comment-Author-List-Clean.csv"))
+
+```
+
+### Note: I had to manually clean out the 'users' [Deleted] and AutoModerator, for obvious reasons. Also, for reasons that are still an abject mystery, I had to run the code below in Spyder because RStudio seems to have lost track of Python.
+
+```{python Pulling in Comment Gens}
+start_epoch=int(dt.datetime(2016, 1, 1).timestamp())
+end_epoch=int(dt.datetime(2016, 12, 31).timestamp())
+
+py_comm_auth_list = r.comment_author_list
+
+x = 0
+comment_history_gen = []
+for n in py_comm_auth_list:
+  print(n)
+  temp3list = api.search_comments(after=start_epoch,
+                            before=end_epoch,
+                            author=n,
+                            )
+  print(x)
+  x += 1
+  comment_history_gen.append(temp3list)
+
+```
+
+```{python Pulling in Comments}
+hist_caches_list = []
+hist_cache = []
+for c in comment_history_gen:
+    for d in c:
+      hist_cache.append(d)
+    hist_caches_list.append(hist_cache)
+    
+```
+
+```{python Assembling Comments into a DataFrame}
+
+dataset = pd.DataFrame()
+x = 0
+for n in hist_caches_list:
+    for o in n:
+        dataset = dataset.append(pd.DataFrame(o.d_, index=[x]))
+        x+=1
+        
+dataset.to_csv('dataset.csv')
+
+```
+
+```{r}
+
+dataset = read_csv('dataset.csv')
+
+head(dataset)
+
+```
+
+```{r}
+user_comments <- dataset %>% mutate(created = as_datetime(created), created_utc = as_datetime(created_utc), author_created_utc = as_datetime(author_created_utc), edited = as_datetime(edited)) # Cleaning Date-Times
+
+user_comments <- user_comments %>% mutate(time_to_post = created_utc - author_created_utc, timezone = created_utc-created)
+
+user_comments <- user_comments %>% mutate(propthread = )
+
+skim(user_comments)
+```
+
+```{r Cleaning and Wording}
+user_words = user_comments %>% group_by(author) %>%  unnest_tokens(word,body,token = "words") %>% anti_join(stop_words) %>%  mutate(word = SnowballC::wordStem(word)) 
+
+user_words = user_words %>% filter(!str_detect(word,"http")) %>% filter(!str_detect(word,"www")) %>% filter(!str_detect(word,"gt")) %>% filter(!str_detect(word,"redd.it")) %>% filter(!str_detect(word,"\\d")) %>% filter(!str_detect(word,".com")) %>% filter(!str_detect(word,"_"))
+
+```
+
+```{r}
+
+user_comments = user_comments %>% mutate(clean_id = str_sub(link_id,-6,-1))
+
+
+user_comments = user_comments %>% mutate(propaganda_thread = 0)
+
+x = 0
+for (n in user_comments$clean_id){
+  print(x)
+  x = x+1
+  if((n %in% idlist$id)==T){
+    user_comments[x,"propaganda_thread"]=1 
+  }
+}
+
+##:length(user_comments$link_id)
+
+summarize(user_comments, propaganda_count = sum(propaganda_thread))
+
+user_comments[32563,]
+```
+
+```{r User-Word Frequency}
+
+user_counts = user_words %>%  count(word,sort=T)
+
+user_counts2 <- 
+  user_counts %>% 
+  bind_tf_idf(word, author, n)
+
+user_counts2 %>% 
+  select(n,tf,idf,tf_idf)
+
+```
+
+```{r Trying a Visualization}
+
+user_counts3 = user_counts2 %>% filter(author == c("nilnz", "Bossman1086", "TossMeAwayToTheMount"))
+
+user_counts3 %>%
+  group_by(author) %>% 
+  top_n(5, tf_idf) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>% 
+  ggplot(aes(word, tf_idf)) +
+  geom_col(show.legend = F) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~author,ncol=1,scales="free") +
+  theme(text=element_text(size=10))
+
+```
+
+```{r}
+comments_corpus <- user_words %>% count(author, word) %>% cast_dtm(author,word,n)
+
+
+comments_lda <- LDA(comments_corpus, k = 10, control = list(seed = 1989))
+
+
+author_topics <- tidy(comments_lda, matrix = "beta")
+
+
+comments_top_terms <- 
+  author_topics %>%
+  group_by(topic) %>% # Group by the topics
+  # Grab the top 10 words most 
+  # associated with the topic
+  top_n(10, beta) %>% 
+  ungroup() %>% # Ungroup
+  arrange(topic, -beta) # Arrange 
+comments_top_terms
+```
+
+```{r}
+comments_top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  theme(text=element_text(size=10))
+```
+
+```{r Sorting by Political Subreddits}
+
+filtered_subreddits = user_comments %>% filter((str_detect(subreddit, "polit")) | (str_detect(subreddit, "trump")) | (str_detect(subreddit, "donald")) | (str_detect(subreddit, "hillary")) | (str_detect(subreddit, "clinton")) | (str_detect(subreddit, "news")) | (str_detect(subreddit, "world")) | (str_detect(subreddit, "sanders")) | (str_detect(subreddit, "bernie")) | (str_detect(subreddit, "gop")) | (str_detect(subreddit, "repub")) | (str_detect(subreddit, "democrat")))
+
+```
+
+```{r Cleaning and Wording Pol}
+user_words_pol = filtered_subreddits %>% group_by(author) %>%  unnest_tokens(word,body,token = "words") %>% anti_join(stop_words) %>%  mutate(word = SnowballC::wordStem(word)) 
+
+user_words_pol = user_words_pol %>% filter(!str_detect(word,"http")) %>% filter(!str_detect(word,"www")) %>% filter(!str_detect(word,"gt")) %>% filter(!str_detect(word,"redd.it")) %>% filter(!str_detect(word,"\\d")) %>% filter(!str_detect(word,".com")) %>% filter(!str_detect(word,"_")) 
+
+```
+
+```{r User-Word Frequency}
+
+user_counts_pol = user_words_pol %>%  count(word,sort=T)
+
+user_counts_pol2 <- 
+  user_counts_pol %>% 
+  bind_tf_idf(word, author, n)
+
+user_counts_pol2 %>% 
+  select(n,tf,idf,tf_idf)
+
+```
+
+```{r Trying a Visualization}
+
+user_counts_pol3 = user_counts_pol2 %>% filter((author == "mikepictor") | (author == "ChefBoyAreWeFucked") | (author == "RyuNoKami"))
+
+user_counts_pol3 %>%
+  group_by(author) %>% 
+  top_n(5, tf_idf) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>% 
+  ggplot(aes(word, tf_idf)) +
+  geom_col(show.legend = F) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~author,scales="free") +
+  theme(text=element_text(size=10))
+
+```
+
+```{r}
+comments_corpus_pol <- user_words_pol %>% count(author, word) %>% cast_dtm(author,word,n)
+
+
+comments_lda_pol <- LDA(comments_corpus_pol, k = 8, control = list(seed = 1989))
+
+
+author_topics_pol <- tidy(comments_lda_pol, matrix = "beta")
+
+
+comments_top_terms_pol <- 
+  author_topics_pol %>%
+  group_by(topic) %>% # Group by the topics
+  # Grab the top 10 words most 
+  # associated with the topic
+  top_n(10, beta) %>% 
+  ungroup() %>% # Ungroup
+  arrange(topic, -beta) # Arrange 
+comments_top_terms_pol
+```
+
+```{r}
+comments_top_terms_pol %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  theme(text=element_text(size=10))
+```
+
+```{r Mentions Candidate}
+
+can_comments = user_comments %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")))
+
+write_csv(can_comments, "can_comments.csv")
+```
+
+
