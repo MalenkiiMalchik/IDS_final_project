@@ -130,6 +130,8 @@ idlist = idlist %>% select("Index" = "X1", "Title" = "0", "Author" = "0_1", "Cre
 
 arrange(idlist, desc(num_comments))
 
+summarize(idlist, )
+
 head(idlist)
 ```
 
@@ -203,12 +205,12 @@ write_csv(final_cal, here("Comment-Author-List.csv"))
 
 ```{r Grabbing Unique Authors}
 
-final_cal <- read_csv(here("Comment-Author-List.csv"))
+final_cal <- read_csv("Comment-Author-List.csv")
 
 final_cal = final_cal %>% mutate(AuthDup = as.numeric(duplicated(Author))) %>% filter(AuthDup==0)
 comment_author_list = final_cal$Author
 
-write_csv(final_cal, here("Comment-Author-List-Clean.csv"))
+write_csv(final_cal, "Comment-Author-List-Clean.csv")
 
 ```
 
@@ -298,11 +300,8 @@ for (n in user_comments$clean_id){
   }
 }
 
-##:length(user_comments$link_id)
-
 summarize(user_comments, propaganda_count = sum(propaganda_thread))
 
-user_comments[32563,]
 ```
 
 ```{r User-Word Frequency}
