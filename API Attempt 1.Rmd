@@ -18,6 +18,9 @@ require(reshape2)
 require(topicmodels)
 require(quanteda)
 require(tictoc)
+require(recipes)
+require(caret)
+require(ranger)
 ```
 
 ```{r Scraping usernames and karmas}
@@ -77,7 +80,6 @@ for (n in threadlist){
       cleaner_threadlist = append(cleaner_threadlist, r)
   }
 }
-print(cleaner_threadlist[[1]]$id)
 ```
 
 ```{r Cleaning them the rest of the way}
@@ -128,11 +130,12 @@ idlist = read_csv("propthreads.csv")
 
 idlist = idlist %>% select("Index" = "X1", "Title" = "0", "Author" = "0_1", "Created" = "0_2", "Link" = "0_3", "Subreddit" = "0_4", "id" = "0_5", "num_comments" = "0_6") %>% mutate(Created = as_datetime(Created))
 
-arrange(idlist, desc(num_comments))
+#arrange(idlist, desc(num_comments))
 
-summarize(idlist, )
+summarize(idlist, tot_comments = sum(num_comments))
 
-head(idlist)
+#head(idlist)
+
 ```
 
 
@@ -284,7 +287,7 @@ user_words = user_words %>% filter(!str_detect(word,"http")) %>% filter(!str_det
 
 ```
 
-```{r}
+```{r Put this somethere else!!!}
 
 user_comments = user_comments %>% mutate(clean_id = str_sub(link_id,-6,-1))
 
@@ -319,7 +322,7 @@ user_counts2 %>%
 
 ```{r Trying a Visualization}
 
-user_counts3 = user_counts2 %>% filter(author == c("nilnz", "Bossman1086", "TossMeAwayToTheMount"))
+user_counts3 = user_counts2 %>% filter(author == c("mikepictor", "Bossman1086", "TossMeAwayToTheMount"))
 
 user_counts3 %>%
   group_by(author) %>% 
@@ -334,12 +337,44 @@ user_counts3 %>%
   theme(text=element_text(size=10))
 
 ```
+```{r User-Word Frequency Subreddit}
+
+user_words = user_words %>% ungroup() %>% group_by(subreddit)
+
+user_counts = user_words %>%  count(word,sort=T)
+
+user_counts4 <- 
+  user_counts %>% 
+  bind_tf_idf(word, subreddit, n)
+
+user_counts4 %>% 
+  select(n,tf,idf,tf_idf)
+
+```
+
+```{r Trying a subreddit Visualization}
+
+user_counts4 = user_counts4 %>% filter(subreddit == c("news", "politics", "worldnews"))
+
+user_counts4 %>%
+  group_by(subreddit) %>% 
+  top_n(5, tf_idf) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>% 
+  ggplot(aes(word, tf_idf)) +
+  geom_col(show.legend = F) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~subreddit,ncol=1,scales="free") +
+  theme(text=element_text(size=10))
+
+```
 
 ```{r}
 comments_corpus <- user_words %>% count(author, word) %>% cast_dtm(author,word,n)
 
 
-comments_lda <- LDA(comments_corpus, k = 10, control = list(seed = 1989))
+comments_lda <- LDA(comments_corpus, k = 5, control = list(seed = 1989))
 
 
 author_topics <- tidy(comments_lda, matrix = "beta")
@@ -364,6 +399,39 @@ comments_top_terms %>%
   facet_wrap(~ topic, scales = "free") +
   coord_flip() +
   theme(text=element_text(size=10))
+```
+
+```{r}
+comments_corpus_pol <- user_words %>% ungroup() %>% filter((subreddit == "politics")==T | (subreddit == "news")==T | (subreddit == "worldnews")==T) %>% count(author, word) %>% cast_dtm(author,word,n)
+
+
+comments_lda_pol <- LDA(comments_corpus_pol, k = 6, control = list(seed = 1989))
+
+
+author_topics_pol <- tidy(comments_lda_pol, matrix = "beta")
+
+
+comments_top_terms_pol <- 
+  author_topics_pol %>%
+  group_by(topic) %>% # Group by the topics
+  # Grab the top 10 words most 
+  # associated with the topic
+  top_n(10, beta) %>% 
+  ungroup() %>% # Ungroup
+  arrange(topic, -beta) # Arrange 
+write_csv(comments_top_terms_pol, "comments_top_terms_pol.csv")
+```
+
+```{r}
+pol_topics <- comments_top_terms_pol %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  theme(text=element_text(size=10))
+
+ggsave(plot = pol_topics, filename = "pol_topics.png", device = "png")
 ```
 
 ```{r Sorting by Political Subreddits}
@@ -443,9 +511,260 @@ comments_top_terms_pol %>%
 
 ```{r Mentions Candidate}
 
-can_comments = user_comments %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")))
+can_comments = user_comments %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")) | (str_detect(body, "Trump")) | (str_detect(body, "Donald")) | (str_detect(body, "Hillary")) | (str_detect(body, "Clinton")) | (str_detect(body, "Sanders")) | (str_detect(body, "Bernie")))
 
-write_csv(can_comments, "can_comments.csv")
 ```
 
+```{r Marking Candidate Mention}
+
+can_comments = can_comments %>% mutate(mention = case_when(
+         str_detect(body, "bernie") ~ "Bernie",
+         str_detect(body, "Bernie") ~ "Bernie",
+         str_detect(body, "sanders") ~ "Bernie",
+         str_detect(body, "Sanders") ~ "Bernie",
+         str_detect(body, "hillary") ~ "Hillary",
+         str_detect(body, "Hillary") ~ "Hillary",
+         str_detect(body, "clinton") ~ "Hillary",
+         str_detect(body, "Clinton") ~ "Hillary",
+         str_detect(body, "donald") ~ "Donald",
+         str_detect(body, "Donald") ~ "Donald",
+         str_detect(body, "trump") ~ "Donald",
+         str_detect(body, "Trump") ~ "Donald"
+         ))
+
+```
+
+
+```{r Cleaning and Wording Candidate Mentions}
+user_words_can = can_comments %>% group_by(author, mention) %>%  unnest_tokens(word,body,token = "words") %>% anti_join(stop_words) %>%  mutate(word = SnowballC::wordStem(word)) 
+
+user_words_can = user_words_can %>% filter(!str_detect(word,"http")) %>% filter(!str_detect(word,"www")) %>% filter(!str_detect(word,"gt")) %>% filter(!str_detect(word,"redd.it")) %>% filter(!str_detect(word,"\\d")) %>% filter(!str_detect(word,".com")) %>% filter(!str_detect(word,"_"))
+
+```
+
+```{r Applying affinity}
+sent_dict <- get_sentiments("afinn")
+sent_text <- user_words_can %>% inner_join(sent_dict) 
+sent_text <- sent_text %>% group_by(author, mention)
+sum_sent_text <- sent_text %>% summarize(Average_Sentiment = mean(value))
+sum_sent_text
+
+```
+
+```{r}
+
+sum_sent_text = sum_sent_text %>% spread(mention, Average_Sentiment) 
+sum_sent_text[is.na(sum_sent_text)] <- 0
+sum_sent_text = sum_sent_text %>% mutate(Democrat = Bernie+Hillary-Donald)
+
+sum_sent_text = sum_sent_text %>% select(author, Democrat)
+```
+
+```{r}
+can_comments_sent = can_comments %>% full_join(sum_sent_text)
+```
+
+
+```{r}
+can_comments_sent = can_comments_sent %>% mutate(day = round_date(created_utc, unit = "day")) %>% group_by(author, day)
+times_per_day = can_comments_sent %>% summarize(times_per_day = n())
+
+times_per_day = times_per_day %>% group_by(author) %>% summarise(num_pol_posts = sum(times_per_day))
+
+can_comments_times = can_comments_sent %>% full_join(times_per_day)
+```
+
+```{r}
+prepset = can_comments_times %>% ungroup() %>% select(author, author_created_utc, controversiality, created_utc, gilded, nest_level, reply_delay, score, time_to_post, mention, Democrat, num_pol_posts,subreddit) 
+
+rcp1 = recipe(Democrat~.,prepset) %>% 
+  step_dummy(all_nominal(),-author) %>%
+  prep()
+
+prepset <- bake(rcp1, prepset)
+
+skim(prepset)
+
+lazyholder = c()
+for (n in variable.names(prepset)[12:168]){
+  lazyholder = paste0(lazyholder, n," = sum(", n, "), ")
+}
+
+
+
+prepset2 = prepset %>% group_by(author) 
+
+prepset2 = prepset2 %>% summarise(author_created_utc = mean(author_created_utc), controversiality = mean(controversiality), created_utc = mean(created_utc), gilded = sum(gilded), nest_level = mean(nest_level), reply_delay = mean(reply_delay), score = mean(score), time_to_post = mean(time_to_post), Democrat = mean(Democrat), num_pol_posts = mean(num_pol_posts), mention_Donald = sum(mention_Donald), mention_Hillary = sum(mention_Hillary), subreddit_AskAnAmerican = sum(subreddit_AskAnAmerican), subreddit_AskReddit = sum(subreddit_AskReddit), subreddit_CapitalismVSocialism = sum(subreddit_CapitalismVSocialism), subreddit_Conservative = sum(subreddit_Conservative), subreddit_conspiracy = sum(subreddit_conspiracy), subreddit_Libertarian = sum(subreddit_Libertarian),  subreddit_news = sum(subreddit_news), subreddit_politics = sum(subreddit_politics), subreddit_SandersForPresident = sum(subreddit_SandersForPresident), subreddit_ShitRConservativeSays = sum(subreddit_ShitRConservativeSays), subreddit_The_Donald = sum(subreddit_The_Donald), subreddit_worldnews = sum(subreddit_worldnews))
+
+prepset2 = ungroup(prepset2)
+
+prepset2[is.na(prepset2)] <- 0
+
+
+skim(prepset2)
+
+```
+
+
+```{r}
+set.seed(1989)
+index = createDataPartition(prepset2$Democrat,p=.8,list=F) 
+train_data = prepset2[index,] # Use 80% of the data as training data 
+test_data = prepset2[-index,] # holdout 20% as test data 
+
+dim(train_data)
+```
+
+```{r}
+rcp <- 
+  recipe(Democrat~.,train_data) %>% 
+  step_range(all_numeric()) %>%  # Normalize scale
+  prep()
+
+train_data2 <- bake(rcp,train_data)
+test_data2 <- bake(rcp,test_data)
+```
+
+```{r}
+train_data2 <- train_data2 %>% select(-subreddit_AskAnAmerican)
+test_data2 <- test_data2 %>% select(-subreddit_AskAnAmerican)
+
+write_csv(train_data2, "train_data2.csv")
+```
+
+
+```{r}
+set.seed(1989) 
+
+folds <- createFolds(train_data2$Democrat, k = 5) 
+
+sapply(folds,length)
+```
+
+```{r}
+control_conditions <- 
+  trainControl(method='cv', 
+               index = folds,
+               classProbs = TRUE
+  )
+```
+
+```{r Random Forest}
+mod_rf <-
+  train(Democrat ~ ., # Equation (outcome and everything else)
+        data=train_data2, # Training data 
+        method = "ranger", # random forest (ranger is much faster than rf)
+        metric = "RMSE",     # mean squared error
+        trControl = control_conditions,
+  )
+```
+
+```{r KNN}
+knn_tune = expand.grid(k = c(1,3,5,7))
+mod_knn <-
+  train(Democrat ~ .,           # Equation (outcome and everything else)
+        data=train_data2,  # Training data 
+        method = "knn",    # K-Nearest Neighbors Algorithm
+        metric = "RMSE",   # mean squared error
+        trControl = control_conditions, # Cross validation conditions
+        tuneGrid = knn_tune # Vary the tuning parameter K 
+  )
+```
+
+```{r linear}
+mod_lm <-
+  train(Democrat ~ .,          # Equation (outcome and everything else)
+        data=train_data2, # Training data 
+        method = "lm",    # linear model
+        metric = "RMSE",   # mean squared error
+        trControl = control_conditions # Cross validation conditions
+  )
+```
+
+```{r}
+mod_list <-
+  list(
+    lm = mod_lm,
+    knn = mod_knn,
+    rf = mod_rf 
+  )
+dotplot(resamples(mod_list),metric = "RMSE")
+
+```
+
+
+
+```{r}
+pred <- predict(mod_rf,newdata = test_data2)
+mse = sum(test_data2$Democrat-pred^2)/nrow(test_data2)
+mse 
+```
+
+## Using tf_idf on candidate mentions!
+
+
+```{r Cleaning and Wording}
+can_words = can_comments %>% group_by(mention) %>%  unnest_tokens(word,body,token = "words") %>% anti_join(stop_words) %>%  mutate(word = SnowballC::wordStem(word)) 
+
+can_words = can_words %>% filter(!str_detect(word,"http")) %>% filter(!str_detect(word,"www")) %>% filter(!str_detect(word,"gt")) %>% filter(!str_detect(word,"redd.it")) %>% filter(!str_detect(word,"\\d")) %>% filter(!str_detect(word,".com")) %>% filter(!str_detect(word,"_")) %>% filter(!str_detect(word,"donald")) %>% filter(!str_detect(word,"trump")) %>% filter(!str_detect(word,"hillary")) %>% filter(!str_detect(word,"clinton")) %>% filter(!str_detect(word,"berni")) %>% filter(!str_detect(word,"sander")) %>% filter(!str_detect(word,"Donald")) %>% filter(!str_detect(word,"Trump")) %>% filter(!str_detect(word,"Hillary")) %>% filter(!str_detect(word,"Clinton")) %>% filter(!str_detect(word,"Berni")) %>% filter(!str_detect(word,"Sander")) %>% filter(!str_detect(word,"onjectid")) 
+
+
+```
+
+
+```{r User-Word Frequency}
+
+can_counts = can_words %>%  count(X1, word) %>% cast_dtm(document = X1, term = word, value = n,
+           weighting = tm::weightTfIdf)
+
+
+can_counts2 <- 
+  can_counts %>% 
+  bind_tf_idf(word, mention, n)
+
+can_counts2 %>% 
+  select(n,tf,idf,tf_idf)
+
+```
+
+```{r Trying a Visualization}
+
+can_counts2 %>%
+  group_by(mention) %>% 
+  top_n(10, tf_idf) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>% 
+  ggplot(aes(word, tf_idf)) +
+  geom_col(show.legend = F) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~mention, ncol=1,scales="free") +
+  theme(text=element_text(size=10))
+
+```
+
+```{r}
+set.seed(1989) 
+
+folds <- createFolds(can_comments$mention, k = 5) 
+
+sapply(folds,length)
+```
+
+```{r}
+control_conditions <- 
+  trainControl(method='cv', 
+               index = folds,
+               classProbs = TRUE
+  )
+```
+
+```{r}
+mention_rf <- train(x = as.matrix(can_counts),
+                     y = factor(can_comments$mention),
+                     method = "ranger",
+                     metric = "ROC",
+                     trControl = control_conditions
+)
+```
 

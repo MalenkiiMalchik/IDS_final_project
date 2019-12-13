@@ -1,0 +1,76 @@
+---
+title: "Thesis Attempt 1"
+author: "Alex Richardson"
+date: "12/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(tidyverse)
+require(here)
+require(recipes)
+require(lubridate)
+```
+
+```{r Reading in the Dataset}
+dataset = read_csv("dataset.csv")
+```
+
+```{r Breaking the Dataset}
+
+set.seed(1989)
+dataset = dataset %>% group_by(Author)
+index = createDataPartition(dataset$Author,p=.8,list=F) 
+train_data = dataset[index,] # Use 80% of the data as training data 
+test_data = dataset[-index,] # holdout 20% as test data 
+
+dim(train_data)
+
+```
+
+
+```{r Mentions Candidate}
+
+train_data = train_data %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")) | (str_detect(body, "Trump")) | (str_detect(body, "Donald")) | (str_detect(body, "Hillary")) | (str_detect(body, "Clinton")) | (str_detect(body, "Sanders")) | (str_detect(body, "Bernie")))
+
+test_data = test_data %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")) | (str_detect(body, "Trump")) | (str_detect(body, "Donald")) | (str_detect(body, "Hillary")) | (str_detect(body, "Clinton")) | (str_detect(body, "Sanders")) | (str_detect(body, "Bernie")))
+
+```
+
+```{r Marking Candidate Mention}
+
+train_data = train_data %>% mutate(mention = case_when(
+         str_detect(body, "bernie") ~ "Bernie",
+         str_detect(body, "Bernie") ~ "Bernie",
+         str_detect(body, "sanders") ~ "Bernie",
+         str_detect(body, "Sanders") ~ "Bernie",
+         str_detect(body, "hillary") ~ "Hillary",
+         str_detect(body, "Hillary") ~ "Hillary",
+         str_detect(body, "clinton") ~ "Hillary",
+         str_detect(body, "Clinton") ~ "Hillary",
+         str_detect(body, "donald") ~ "Donald",
+         str_detect(body, "Donald") ~ "Donald",
+         str_detect(body, "trump") ~ "Donald",
+         str_detect(body, "Trump") ~ "Donald"
+         ))
+
+test_data = test_data %>% mutate(mention = case_when(
+         str_detect(body, "bernie") ~ "Bernie",
+         str_detect(body, "Bernie") ~ "Bernie",
+         str_detect(body, "sanders") ~ "Bernie",
+         str_detect(body, "Sanders") ~ "Bernie",
+         str_detect(body, "hillary") ~ "Hillary",
+         str_detect(body, "Hillary") ~ "Hillary",
+         str_detect(body, "clinton") ~ "Hillary",
+         str_detect(body, "Clinton") ~ "Hillary",
+         str_detect(body, "donald") ~ "Donald",
+         str_detect(body, "Donald") ~ "Donald",
+         str_detect(body, "trump") ~ "Donald",
+         str_detect(body, "Trump") ~ "Donald"
+         ))
+```
+
+```{r}
+
+```
