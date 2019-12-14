@@ -11,6 +11,226 @@ require(tidyverse)
 require(here)
 require(recipes)
 require(lubridate)
+require(fastDummies)
+require(caret)
+```
+
+```{r Scraping usernames and karmas, eval=FALSE}
+
+ raw = read_html("https://www.reddit.com/wiki/suspiciousaccounts")
+table = raw %>% 
+  html_nodes(.,xpath="/html/body/div[1]/div/div/div/div[2]/div/div/div/div[2]/div[3]/div[1]/div[2]/div/div[1]/div/table") %>% 
+  html_table()
+table = data.frame(table)
+```
+
+```{r Getting rid of "/u" and making a list of usernames, eval=FALSE}
+usernamelist = c()
+for(n in 1:length(table$Username)){
+  table$Username[n] = str_remove(table$Username[n], "u/")
+  usernamelist = append(usernamelist, table$Username[n])
+}
+
+write_csv(table, "table-of-usernames.csv")
+
+table
+```
+
+
+```{python setup, eval=FALSE}
+import psaw
+import datetime as dt
+
+from psaw import PushshiftAPI
+
+api = PushshiftAPI()
+
+```
+
+
+```{python Pulling in Threadlist, eval=FALSE}
+
+pyusernamelist = r.usernamelist
+
+threadlist = []
+for n in pyusernamelist:
+  templist = list(api.search_submissions(
+                            author=n,
+                            filter=['url','author', 'title', 'subreddit', 'id']
+                            ))
+  threadlist.append(templist)
+  
+
+  
+```
+
+```{r Cleaning Threadlist a Bit, eval=FALSE}
+threadlist = py$threadlist
+cleaner_threadlist = c()
+for (n in threadlist){
+  for (r in n){
+      cleaner_threadlist = append(cleaner_threadlist, r)
+  }
+}
+```
+
+```{r Cleaning them the rest of the way, eval=FALSE}
+cleanest_threadlist = c()
+author = c()
+date = c()
+subreddit = c()
+title = c()
+url = c()
+id = c()
+tholder = c()
+aholder = c()
+dholder = c()
+uholder = c()
+sholder = c()
+iholder = c()
+for (o in cleaner_threadlist){
+  author = as.character(o$author)
+  date = as.character(o$created)
+  title = as.character(o$title)
+  subreddit = as.character(o$subreddit)
+  url = as.character(o$url)
+  id = as.character(o$id)
+  tholder = append(tholder, title)
+  aholder = append(aholder, author)
+  dholder = append(dholder, date)
+  uholder = append(uholder, url)
+  sholder = append(sholder, subreddit)
+  iholder = append(iholder, id)
+}
+tholder = as.data.frame(tholder)
+aholder = as.data.frame(aholder)
+dholder = as.data.frame(dholder)
+uholder = as.data.frame(uholder)
+sholder = as.data.frame(sholder)
+iholder = as.data.frame(iholder)
+
+cleanest_threadlist = bind_cols(tholder, aholder, dholder, uholder, sholder, iholder)
+cleanest_threadlist = rename(cleanest_threadlist, "Title" = tholder, "Author" = aholder, "Date" = dholder, "URL" = uholder, "Subreddit" = sholder, "ID" = iholder)
+head(cleanest_threadlist)
+
+idlist = as.character(cleanest_threadlist$ID)
+write_csv(cleanest_threadlist, here("Threadlist.csv"))
+```
+
+```{python Pulling in Comment Author Gens, eval=FALSE}
+pyidlist = r.idlist
+
+x = 0
+comment_author_list = []
+for n in pyidlist:
+  print(n)
+  temp2list = api.search_comments(
+                            id=n,
+                            filter=['author','id','subreddit','title']
+                            )
+  print(x)
+  x += 1
+  comment_author_list.append(temp2list)
+
+```
+
+```{python Pulling in Comment Author List, eval=FALSE}
+caches_list = []
+max_response_cache = 100
+cache = []
+for c in comment_author_list:
+    for d in c:
+      cache.append(d)
+      if len(cache) >= max_response_cache:
+        break
+    caches_list.append(cache)
+```
+
+
+```{r Cleaning Comment Author List, eval=FALSE}
+final_cal = c()
+author = c()
+date = c()
+subreddit = c()
+title = c()
+id = c()
+tholder = c()
+aholder = c()
+dholder = c()
+sholder = c()
+iholder = c()
+for (n in caches_list){
+  for (o in n){
+    author = as.character(o$author)
+    date = as.character(o$created)
+    subreddit = as.character(o$subreddit)
+    id = as.character(o$id)
+    aholder = append(aholder, author)
+    dholder = append(dholder, date)
+    sholder = append(sholder, subreddit)
+    iholder = append(iholder, id)
+  }
+}
+aholder = as.data.frame(aholder)
+dholder = as.data.frame(dholder)
+sholder = as.data.frame(sholder)
+iholder = as.data.frame(iholder)
+
+final_cal = bind_cols(tholder, aholder, dholder, sholder, iholder)
+final_cal = rename(final_cal, "Author" = aholder, "Date" = dholder, "Subreddit" = sholder, "ID" = iholder)
+
+```
+
+```{r Grabbing Unique Authors, eval=FALSE}
+
+final_cal = final_cal %>% mutate(AuthDup = as.numeric(duplicated(Author))) %>% filter(AuthDup==0)
+comment_author_list = final_cal$Author
+
+```
+
+### Note: I had to manually clean out the 'users' [Deleted] and AutoModerator, for obvious reasons. Also, for reasons that are still an abject mystery, I had to run the code below in Spyder because RStudio seems to have lost track of Python.
+
+```{python Pulling in Comment Gens, eval=FALSE}
+start_epoch=int(dt.datetime(2016, 1, 1).timestamp())
+end_epoch=int(dt.datetime(2016, 12, 31).timestamp())
+
+py_comm_auth_list = r.comment_author_list
+
+x = 0
+comment_history_gen = []
+for n in py_comm_auth_list:
+  print(n)
+  temp3list = api.search_comments(after=start_epoch,
+                            before=end_epoch,
+                            author=n,
+                            )
+  print(x)
+  x += 1
+  comment_history_gen.append(temp3list)
+
+```
+
+```{python Pulling in Comments, eval=FALSE}
+hist_caches_list = []
+hist_cache = []
+for c in comment_history_gen:
+    for d in c:
+      hist_cache.append(d)
+    hist_caches_list.append(hist_cache)
+    
+```
+
+```{python Assembling Comments into a DataFrame, eval=FALSE}
+
+dataset = pd.DataFrame()
+x = 0
+for n in hist_caches_list:
+    for o in n:
+        dataset = dataset.append(pd.DataFrame(o.d_, index=[x]))
+        x+=1
+        
+dataset.to_csv('dataset.csv')
+
 ```
 
 ```{r Reading in the Dataset}
@@ -113,6 +333,10 @@ user_words = train_data %>% group_by(author) %>%  unnest_tokens(word,body,token 
 
 user_words = user_words %>% filter(!str_detect(word,"http")) %>% filter(!str_detect(word,"www")) %>% filter(!str_detect(word,"gt")) %>% filter(!str_detect(word,"redd.it")) %>% filter(!str_detect(word,"\\d")) %>% filter(!str_detect(word,".com")) %>% filter(!str_detect(word,"_")) %>% filter(!subreddit=="newzealand")
 
+user_words_test = test_data %>% group_by(author) %>%  unnest_tokens(word,body,token = "words") %>% anti_join(stop_words) %>%  mutate(word = SnowballC::wordStem(word)) 
+
+user_words_test = user_words_test %>% filter(!str_detect(word,"http")) %>% filter(!str_detect(word,"www")) %>% filter(!str_detect(word,"gt")) %>% filter(!str_detect(word,"redd.it")) %>% filter(!str_detect(word,"\\d")) %>% filter(!str_detect(word,".com")) %>% filter(!str_detect(word,"_")) %>% filter(!subreddit=="newzealand")
+
 ```
 
 
@@ -202,8 +426,7 @@ comments_top_terms_pol %>%
 ```
 
 ---------------------------------------------------------------------------------------------------------------------------
-(Gotta do this for test too)
-```{r}
+```{r Sentiment Words}
 sentinet_lex = read_tsv("SentiWordNet_3.0.0.txt")
 sentinet_lex = sentinet_lex %>%  unnest_tokens(word,SynsetTerms,token = "words") %>% mutate(word = str_remove(string = word, pattern = "#")) %>% mutate(word = str_remove(string = word, pattern = "\\d")) %>% filter(is.na(word)==FALSE) %>% mutate(word = SnowballC::wordStem(word)) %>% filter(as.numeric(duplicated(word))==0)
 sent_text <- user_words %>% inner_join(sentinet_lex) 
@@ -214,6 +437,15 @@ sum_sent_text[is.na(sum_sent_text)] <- 0
 sum_sent_text = sum_sent_text %>% mutate(Liberal = Bernie+Democrat+Hillary-Donald-Republican) %>% mutate(Antiestablishment = Bernie+Donald-Democrat-Hillary-Republican)
 ```
 
+```{r Sentiment Words for Test}
+sent_text_test <- user_words_test %>% inner_join(sentinet_lex) 
+sent_text_test <- sent_text_test %>% group_by(author, mention)
+sum_sent_text_test <- sent_text_test %>% summarize(PosSentiment = mean(PosScore), NegScore = mean(NegScore), ObjScore = mean(PosScore-NegScore)) %>% mutate(Positive = (ObjScore>0))
+sum_sent_text_test = sum_sent_text_test %>% select(author, mention, ObjScore) %>% ungroup() %>% spread(mention, ObjScore) 
+sum_sent_text_test[is.na(sum_sent_text_test)] <- 0
+sum_sent_text_test = sum_sent_text_test %>% mutate(Liberal = Bernie+Democrat+Hillary-Donald-Republican) %>% mutate(Antiestablishment = Bernie+Donald-Democrat-Hillary-Republican)
+```
+
 ```{r}
 ggplot(sum_sent_text,
        aes(x=Antiestablishment,y=Liberal)) +
@@ -222,16 +454,310 @@ ggplot(sum_sent_text,
 ```
 
 ```{r}
-comments_sent = sum_sent_text %>% select(author, Liberal, Antiestablishment) %>% inner_join(train_data) %>% mutate(Liberal = (Liberal>1)) %>% mutate(Antiestablishment = (Antiestablishment>0))
+comments_sent = sum_sent_text %>% select(author, Liberal, Antiestablishment) %>% inner_join(train_data) %>% mutate(Liberal = (Liberal>0)) %>% mutate(Antiestablishment = (Antiestablishment>0))
+
+comments_sent_test = sum_sent_text_test %>% select(author, Liberal, Antiestablishment) %>% inner_join(test_data) %>% mutate(Liberal = (Liberal>0)) %>% mutate(Antiestablishment = (Antiestablishment>0))
+
 ```
 
 
-```{r}
+```{r Cleaning up the dataset to create some new variables}
 comments_sent = comments_sent %>% mutate(created_utc = as_datetime(created_utc)) %>% mutate(day = round_date(created_utc, unit = "day"))
 times_per_day = comments_sent %>% group_by(author, day) %>% summarize(times_per_day = n())
 
 times_per_day = times_per_day %>% group_by(author) %>% mutate(daycounter = 1) %>% summarise(num_pol_posts = sum(times_per_day), mean_pol_posts = mean(times_per_day), days_active = sum(daycounter))
 
 comments_sent2 = comments_sent %>% full_join(times_per_day)
+
+prep_train_set = comments_sent2 %>% ungroup() %>% select(author, Liberal, Antiestablishment, author_created_utc, controversiality, created_utc, gilded, nest_level, reply_delay, score, subreddit, mention, day, num_pol_posts, mean_pol_posts, days_active) %>% mutate(author_created_utc = as_datetime(author_created_utc)) %>% mutate(age = created_utc-author_created_utc)
+
+prep_train_set = prep_train_set %>% dummy_cols(select_columns = "subreddit") %>% dummy_cols(select_columns = "mention") %>% mutate(Liberal = as.numeric(Liberal), Antiestablishment = as.numeric(Antiestablishment))
+
+
+prep_train_set = prep_train_set %>% group_by(author) 
+
+
+prep_train_set = prep_train_set %>% summarise(Liberal = mean(Liberal), Antiestablishment = mean(Antiestablishment), controversiality = mean(controversiality), gilded = sum(gilded), nest_level = mean(nest_level), age = mean(age), reply_delay = mean(reply_delay), score = mean(score), age = mean(age), num_pol_posts = mean(num_pol_posts), mention_Donald = sum(mention_Donald), mention_Hillary = sum(mention_Hillary), mention_Bernie = sum(mention_Bernie), mention_Democrat = sum(mention_Democrat), mention_Republican = sum(mention_Republican), subreddit_AskAnAmerican = sum(subreddit_AskAnAmerican), subreddit_AskReddit = sum(subreddit_AskReddit), subreddit_Conservative = sum(subreddit_Conservative), subreddit_conspiracy = sum(subreddit_conspiracy), subreddit_Libertarian = sum(subreddit_Libertarian),  subreddit_news = sum(subreddit_news), subreddit_politics = sum(subreddit_politics), subreddit_SandersForPresident = sum(subreddit_SandersForPresident), subreddit_ShitRConservativeSays = sum(subreddit_ShitRConservativeSays), subreddit_The_Donald = sum(subreddit_The_Donald), subreddit_worldnews = sum(subreddit_worldnews)) 
+
+prep_train_set[is.na(prep_train_set)] <- 0
+
+prep_train_set = prep_train_set %>% mutate(Liberal = case_when(
+         (Liberal==1) ~ "Liberal",
+         (Liberal==0) ~ "Conservative"
+))
+prep_train_set = prep_train_set %>% mutate(Antiestablishment = case_when(
+         (Antiestablishment==1) ~ "Antiestablishment",
+         (Antiestablishment==0) ~ "Establishment"
+))
+
 ```
 
+```{r Cleaning up the dataset to create some new variables for test}
+comments_sent_test = comments_sent_test %>% mutate(created_utc = as_datetime(created_utc)) %>% mutate(day = round_date(created_utc, unit = "day"))
+times_per_day_test = comments_sent_test %>% group_by(author, day) %>% summarize(times_per_day = n())
+
+times_per_day_test = times_per_day_test %>% group_by(author) %>% mutate(daycounter = 1) %>% summarise(num_pol_posts = sum(times_per_day), mean_pol_posts = mean(times_per_day), days_active = sum(daycounter))
+
+comments_sent2_test = comments_sent_test %>% full_join(times_per_day_test)
+
+prep_test_set = comments_sent2_test %>% ungroup() %>% select(author, Liberal, Antiestablishment, author_created_utc, controversiality, created_utc, gilded, nest_level, reply_delay, score, subreddit, mention, day, num_pol_posts, mean_pol_posts, days_active) %>% mutate(author_created_utc = as_datetime(author_created_utc)) %>% mutate(age = created_utc-author_created_utc)
+
+prep_test_set = prep_test_set %>% dummy_cols(select_columns = "subreddit") %>% dummy_cols(select_columns = "mention") %>% mutate(Liberal = as.numeric(Liberal), Antiestablishment = as.numeric(Antiestablishment))
+
+
+prep_test_set = prep_test_set %>% group_by(author) 
+
+prep_test_set[is.na(prep_test_set)] <- 0
+
+prep_test_set = prep_test_set %>% summarise(Liberal = mean(Liberal), Antiestablishment = mean(Antiestablishment), age = mean(age), controversiality = mean(controversiality), gilded = sum(gilded), nest_level = mean(nest_level), reply_delay = mean(reply_delay), score = mean(score), age = mean(age), num_pol_posts = mean(num_pol_posts), mention_Donald = sum(mention_Donald), mention_Hillary = sum(mention_Hillary), mention_Bernie = sum(mention_Bernie), mention_Democrat = sum(mention_Democrat), mention_Republican = sum(mention_Republican), subreddit_AskAnAmerican = sum(subreddit_AskAnAmerican), subreddit_AskReddit = sum(subreddit_AskReddit), subreddit_Conservative = sum(subreddit_Conservative), subreddit_conspiracy = sum(subreddit_conspiracy), subreddit_Libertarian = sum(subreddit_Libertarian),  subreddit_news = sum(subreddit_news), subreddit_politics = sum(subreddit_politics), subreddit_SandersForPresident = sum(subreddit_SandersForPresident), subreddit_ShitRConservativeSays = sum(subreddit_ShitRConservativeSays), subreddit_The_Donald = sum(subreddit_The_Donald), subreddit_worldnews = sum(subreddit_worldnews))
+
+
+prep_test_set = prep_test_set %>% mutate(Liberal = case_when(
+         (Liberal==1) ~ "Liberal",
+         (Liberal==0) ~ "Conservative"
+))
+prep_test_set = prep_test_set %>% mutate(Antiestablishment = case_when(
+         (Antiestablishment==1) ~ "Antiestablishment",
+         (Antiestablishment==0) ~ "Establishment"
+))
+```
+
+
+```{r Cleaning for Liberal}
+prep_train_set_Liberal = prep_train_set %>% select(-Antiestablishment)
+
+prep_test_set_Liberal = prep_test_set %>% select(-Antiestablishment)
+
+skim(prep_test_set_Liberal)
+
+rcp <- 
+  recipe(Liberal~.,prep_train_set_Liberal) %>% 
+  step_range(all_numeric()) %>%  # Normalize scale
+  prep()
+
+train_data_Liberal <- bake(rcp,prep_train_set_Liberal)
+test_data_Liberal <- bake(rcp,prep_test_set_Liberal)
+
+skim(test_data_Liberal)
+```
+
+```{r Cleaning for Antiestablishment}
+prep_train_set_Anti = prep_train_set %>% select(-Liberal)
+
+prep_test_set_Anti = prep_test_set %>% select(-Liberal)
+
+rcp <- 
+  recipe(Antiestablishment~.,prep_train_set_Anti) %>% 
+  step_range(all_numeric()) %>%  # Normalize scale
+  prep()
+
+train_data_Anti <- bake(rcp,prep_train_set_Anti)
+test_data_Anti <- bake(rcp,prep_test_set_Anti)
+
+```
+
+```{r User-Word Frequency}
+
+words_sent = comments_sent2 %>% group_by(author) %>%  unnest_tokens(word,body,token = "words") %>% anti_join(stop_words) %>%  mutate(word = SnowballC::wordStem(word))
+
+comments_sent3 = comments_sent2  %>% mutate(Liberal = as.numeric(Liberal), Antiestablishment = as.numeric(Antiestablishment)) %>% select(-"X1")
+
+comments_sent3$Liberal[comments_sent3$Liberal==1] <- "Yes"
+comments_sent3$Liberal[comments_sent3$Liberal==0] <- "No"
+comments_sent3$Antiestablishment[comments_sent3$Antiestablishment==1] <- "Yes"
+comments_sent3$Antiestablishment[comments_sent3$Antiestablishment==0] <- "No"
+
+sent_counts = words_sent %>%  count(id, word) %>% cast_dtm(document = id, term = word, value = n,
+           weighting = tm::weightTfIdf)
+
+
+```
+
+```{r Folds Liberal}
+set.seed(1989) 
+
+folds <- createFolds(train_data_Liberal$Liberal, k = 5) 
+
+sapply(folds,length)
+```
+
+```{r Folds Antiestablishment}
+set.seed(1989) 
+
+folds <- createFolds(train_data_Anti$Antiestablishment, k = 5) 
+
+sapply(folds,length)
+```
+
+```{r Folds tf_itf Liberal}
+set.seed(1989) 
+
+folds <- createFolds(comments_sent2$Liberal, k = 5) 
+
+sapply(folds,length)
+```
+
+```{r Folds tf_itf Antiestablishment}
+set.seed(1989) 
+
+folds <- createFolds(comments_sent2$Antiestablishment, k = 5) 
+
+sapply(folds,length)
+```
+
+
+```{r}
+control_conditions <- 
+  trainControl(method='cv', 
+               summaryFunction = twoClassSummary,
+               index = folds,
+               classProbs = TRUE
+  )
+```
+
+```{r tf_idf RF Liberal}
+mention_rf_liberal <- train(x = as.matrix(sent_counts),
+                     y = factor(comments_sent3$Liberal),
+                     method = "ranger",
+                     metric = "ROC",
+                     trControl = control_conditions
+)
+```
+
+```{r tf_idf RF Antiestablishment}
+mention_rf_antiestablishment <- train(x = as.matrix(sent_counts),
+                     y = factor(comments_sent3$Antiestablishment),
+                     method = "ranger",
+                     metric = "ROC",
+                     trControl = control_conditions
+)
+```
+
+```{r Random Forest Liberal}
+mod_rf_liberal <-
+  train(Liberal ~ ., 
+        data=train_data_Liberal, 
+        method = "ranger", 
+        metric = "ROC",     
+        trControl = control_conditions
+  )
+```
+
+```{r Random Forest Antiestablishment}
+mod_rf_anti <-
+  train(Antiestablishment ~ ., 
+        data=train_data_Anti, 
+        method = "ranger", 
+        metric = "ROC",     
+        trControl = control_conditions
+  )
+
+```
+
+```{r}
+mod_svm_linear_liberal <-
+  train(Liberal ~ ., 
+        data=train_data_Liberal,
+         method = "svmLinear", # SVM with a polynomial Kernel
+        metric = "ROC", # area under the curve
+        tuneGrid = expand.grid(C = c(.35,.4,.45)), # Add two tuning parameters
+        trControl = control_conditions
+  )
+mod_svm_linear_liberal
+```
+
+```{r}
+mod_svm_linear_anti <-
+  train(Antiestablishment ~ ., 
+        data=train_data_Anti,
+         method = "svmLinear", # SVM with a polynomial Kernel
+        metric = "ROC", # area under the curve
+        tuneGrid = expand.grid(C = c(5,.1,1)), # Add two tuning parameters
+        trControl = control_conditions
+  )
+mod_svm_linear_anti
+```
+
+```{r}
+mod_svm_radial_liberal <-
+  train(Liberal ~ ., 
+        data=train_data_Liberal, 
+         method = "svmPoly", # SVM with a Radial Kernel
+        metric = "ROC", # area under the curve
+        trControl = control_conditions
+  )
+plot(mod_svm_radial_liberal)
+```
+
+```{r}
+mod_svm_radial_anti <-
+  train(Antiestablishment ~ ., 
+        data=train_data_Anti, 
+         method = "svmPoly", # SVM with a Radial Kernel
+        metric = "ROC", # area under the curve
+        trControl = control_conditions
+  )
+plot(mod_svm_radial_anti)
+```
+
+```{r}
+mod_knn_liberal <-
+  train(Liberal ~ ., 
+        data=train_data_Liberal, 
+        method = "knn", # K-Nearest Neighbors Algorithm
+        metric = "ROC", # area under the curve
+        trControl = control_conditions
+  )
+mod_knn_liberal
+```
+
+```{r}
+mod_knn_anti <-
+  train(Antiestablishment ~ ., 
+        data=train_data_Anti, 
+        method = "knn", # K-Nearest Neighbors Algorithm
+        metric = "ROC", # area under the curve
+        trControl = control_conditions
+  )
+mod_knn_anti
+```
+
+
+```{r}
+mod_list_liberal <-
+  list(
+    knn = mod_knn_liberal,
+    rf = mod_rf_liberal,
+    svm_linear = mod_svm_linear_liberal,
+    svm_radial = mod_svm_radial_liberal 
+  )
+
+# Generate Plot to compare output. 
+dotplot(resamples(mod_list_liberal))
+```
+
+```{r}
+mod_list_anti <-
+  list(
+    knn = mod_knn_anti,
+    rf = mod_rf_anti,
+    svm_linear = mod_svm_linear_anti,
+    svm_radial = mod_svm_radial_anti 
+  )
+
+# Generate Plot to compare output. 
+dotplot(resamples(mod_list_anti))
+```
+
+```{r}
+test_data_Liberal = test_data_Liberal %>% filter(is.na(Liberal)==FALSE, is.na(author)==FALSE)
+pred_liberal <- predict(mod_svm_linear_liberal,newdata = test_data_Liberal)
+confusionMatrix(table(pred_liberal,test_data_Liberal$Liberal))
+```
+
+```{r}
+test_data_Anti = test_data_Anti %>% filter(is.na(Antiestablishment)==FALSE, is.na(author)==FALSE)
+pred_anti <- predict(mod_svm_radial_anti,newdata = test_data_Anti)
+
+"?}
+```
