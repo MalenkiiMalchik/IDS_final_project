@@ -20,8 +20,8 @@ dataset = read_csv("dataset.csv")
 ```{r Breaking the Dataset}
 
 set.seed(1989)
-dataset = dataset %>% group_by(Author)
-index = createDataPartition(dataset$Author,p=.8,list=F) 
+dataset = dataset %>% group_by(author)
+index = createDataPartition(dataset$author,p=.8,list=F) 
 train_data = dataset[index,] # Use 80% of the data as training data 
 test_data = dataset[-index,] # holdout 20% as test data 
 
@@ -32,9 +32,10 @@ dim(train_data)
 
 ```{r Mentions Candidate}
 
-train_data = train_data %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")) | (str_detect(body, "Trump")) | (str_detect(body, "Donald")) | (str_detect(body, "Hillary")) | (str_detect(body, "Clinton")) | (str_detect(body, "Sanders")) | (str_detect(body, "Bernie")))
+train_data = train_data %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")) | (str_detect(body, "Trump")) | (str_detect(body, "Donald")) | (str_detect(body, "Hillary")) | (str_detect(body, "Clinton")) | (str_detect(body, "Sanders")) | (str_detect(body, "Bernie")) | (str_detect(body, "democrat")) | (str_detect(body, "republican")) | (str_detect(body, "gop")) | (str_detect(body, "GOP")) | (str_detect(body, "Republican")) | (str_detect(body, "Democrat")) | (str_detect(body, "Dems "))| (str_detect(body, "dems "))) 
 
-test_data = test_data %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")) | (str_detect(body, "Trump")) | (str_detect(body, "Donald")) | (str_detect(body, "Hillary")) | (str_detect(body, "Clinton")) | (str_detect(body, "Sanders")) | (str_detect(body, "Bernie")))
+test_data = test_data %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")) | (str_detect(body, "Trump")) | (str_detect(body, "Donald")) | (str_detect(body, "Hillary")) | (str_detect(body, "Clinton")) | (str_detect(body, "Sanders")) | (str_detect(body, "Bernie")) | (str_detect(body, "democrat")) | (str_detect(body, "republican")) | (str_detect(body, "gop")) | (str_detect(body, "GOP")) | (str_detect(body, "Republican")) | (str_detect(body, "Democrat")) | (str_detect(body, "Dems "))| (str_detect(body, "dems "))) 
+
 
 ```
 
@@ -52,7 +53,15 @@ train_data = train_data %>% mutate(mention = case_when(
          str_detect(body, "donald") ~ "Donald",
          str_detect(body, "Donald") ~ "Donald",
          str_detect(body, "trump") ~ "Donald",
-         str_detect(body, "Trump") ~ "Donald"
+         str_detect(body, "Trump") ~ "Donald",
+         str_detect(body, "democrat") ~ "Democrat", 
+         str_detect(body, "republican") ~ "Republican", 
+         str_detect(body, "gop") ~ "Republican",
+         str_detect(body, "GOP") ~ "Republican",
+         str_detect(body, "Republican") ~ "Republican",
+         str_detect(body, "Democrat") ~ "Democrat",
+         str_detect(body, "Dems ") ~ "Democrat",
+         str_detect(body, "dems ") ~ "Democrat"
          ))
 
 test_data = test_data %>% mutate(mention = case_when(
@@ -67,10 +76,162 @@ test_data = test_data %>% mutate(mention = case_when(
          str_detect(body, "donald") ~ "Donald",
          str_detect(body, "Donald") ~ "Donald",
          str_detect(body, "trump") ~ "Donald",
-         str_detect(body, "Trump") ~ "Donald"
+         str_detect(body, "Trump") ~ "Donald",
+         str_detect(body, "democrat") ~ "Democrat", 
+         str_detect(body, "republican") ~ "Republican", 
+         str_detect(body, "gop") ~ "Republican",
+         str_detect(body, "GOP") ~ "Republican",
+         str_detect(body, "Republican") ~ "Republican",
+         str_detect(body, "Democrat") ~ "Democrat",
+         str_detect(body, "Dems ") ~ "Democrat",
+         str_detect(body, "dems ") ~ "Democrat"
          ))
 ```
 
 ```{r}
 
+train_data = train_data %>% ungroup()
+
+sums_of_mentions = train_data %>% group_by(subreddit) %>% summarize(Donald = sum(as.numeric(mention == "Donald")), Bernie = sum(as.numeric(mention == "Bernie")), Hillary = sum(as.numeric(mention == "Hillary")), Democrat = sum(as.numeric(mention == "Democrat")), Republican = sum(as.numeric(mention == "Republican")))
+
+
+sums_of_mentions %>% melt() %>% group_by(variable) %>% top_n(5, value) %>% ungroup() %>%  mutate(subreddit = reorder(subreddit, value)) %>% 
+ ggplot() +
+  aes(subreddit, value, fill = variable) +
+  geom_col(show.legend = F) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~variable,ncol=2,scales="free") +
+  theme(text=element_text(size=10))
+
 ```
+
+---------------------------------------------------------------------------------------------------------------------------
+
+```{r Cleaning and Wording}
+user_words = train_data %>% group_by(author) %>%  unnest_tokens(word,body,token = "words") %>% anti_join(stop_words) %>%  mutate(word = SnowballC::wordStem(word)) 
+
+user_words = user_words %>% filter(!str_detect(word,"http")) %>% filter(!str_detect(word,"www")) %>% filter(!str_detect(word,"gt")) %>% filter(!str_detect(word,"redd.it")) %>% filter(!str_detect(word,"\\d")) %>% filter(!str_detect(word,".com")) %>% filter(!str_detect(word,"_")) %>% filter(!subreddit=="newzealand")
+
+```
+
+
+```{r User-Word Frequency Subreddit}
+
+user_words = user_words %>% ungroup() %>% group_by(subreddit)
+
+user_counts = user_words %>%  count(word,sort=T)
+
+user_counts4 <- 
+  user_counts %>% 
+  bind_tf_idf(word, subreddit, n)
+
+```
+
+```{r Trying a subreddit Visualization}
+
+user_counts4 %>% filter((subreddit == "The_Donald") | (subreddit == "politics") | (subreddit == "conspiracy") | (subreddit == "news") | (subreddit == "worldnews")) %>% filter(!str_detect(word,"berni")) %>% filter(!str_detect(word,"donald")) %>% filter(!str_detect(word,"trump")) %>% filter(!str_detect(word,"clinton")) %>% filter(!str_detect(word,"hillari")) %>%
+  group_by(subreddit) %>% 
+  top_n(5, tf_idf) %>% 
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>% 
+  ggplot(aes(word, tf_idf, fill = subreddit)) +
+  geom_col(show.legend = F) +
+  xlab(NULL) +
+  coord_flip() +
+  facet_wrap(~subreddit,ncol=1,scales="free") +
+  theme(text=element_text(size=10))
+
+```
+
+
+```{r}
+comments_corpus <- user_words %>% count(author, word) %>% cast_dtm(author,word,n)
+
+
+comments_lda <- LDA(comments_corpus, k = 5, control = list(seed = 1989))
+
+
+author_topics <- tidy(comments_lda, matrix = "beta")
+
+
+comments_top_terms <- 
+  author_topics %>%
+  group_by(topic) %>% 
+  top_n(10, beta) %>% 
+  ungroup() %>% # Ungroup
+  arrange(topic, -beta) # Arrange 
+```
+
+```{r}
+comments_top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  theme(text=element_text(size=10))
+```
+
+```{r Topic Models without Candidate Names}
+comments_corpus_pol <- user_words %>% ungroup() %>% filter(!str_detect(word,"berni")) %>% filter(!str_detect(word,"donald")) %>% filter(!str_detect(word,"trump")) %>% filter(!str_detect(word,"clinton")) %>% filter(!str_detect(word,"hillari")) %>% count(author, word) %>% cast_dtm(author,word,n)
+
+
+comments_lda_pol <- LDA(comments_corpus_pol, k = 4, control = list(seed = 1989))
+
+
+author_topics_pol <- tidy(comments_lda_pol, matrix = "beta")
+
+
+comments_top_terms_pol <- 
+  author_topics_pol %>%
+  group_by(topic) %>% 
+  top_n(10, beta) %>% 
+  ungroup() %>% # Ungroup
+  arrange(topic, -beta) # Arrange 
+```
+
+```{r}
+comments_top_terms_pol %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  theme(text=element_text(size=10))
+```
+
+---------------------------------------------------------------------------------------------------------------------------
+(Gotta do this for test too)
+```{r}
+sentinet_lex = read_tsv("SentiWordNet_3.0.0.txt")
+sentinet_lex = sentinet_lex %>%  unnest_tokens(word,SynsetTerms,token = "words") %>% mutate(word = str_remove(string = word, pattern = "#")) %>% mutate(word = str_remove(string = word, pattern = "\\d")) %>% filter(is.na(word)==FALSE) %>% mutate(word = SnowballC::wordStem(word)) %>% filter(as.numeric(duplicated(word))==0)
+sent_text <- user_words %>% inner_join(sentinet_lex) 
+sent_text <- sent_text %>% group_by(author, mention)
+sum_sent_text <- sent_text %>% summarize(PosSentiment = mean(PosScore), NegScore = mean(NegScore), ObjScore = mean(PosScore-NegScore)) %>% mutate(Positive = (ObjScore>0))
+sum_sent_text = sum_sent_text %>% select(author, mention, ObjScore) %>% ungroup() %>% spread(mention, ObjScore) 
+sum_sent_text[is.na(sum_sent_text)] <- 0
+sum_sent_text = sum_sent_text %>% mutate(Liberal = Bernie+Democrat+Hillary-Donald-Republican) %>% mutate(Antiestablishment = Bernie+Donald-Democrat-Hillary-Republican)
+```
+
+```{r}
+ggplot(sum_sent_text,
+       aes(x=Antiestablishment,y=Liberal)) +
+  geom_point() +
+  geom_smooth(method='lm', formula= y~x)
+```
+
+```{r}
+comments_sent = sum_sent_text %>% select(author, Liberal, Antiestablishment) %>% inner_join(train_data) %>% mutate(Liberal = (Liberal>1)) %>% mutate(Antiestablishment = (Antiestablishment>0))
+```
+
+
+```{r}
+comments_sent = comments_sent %>% mutate(created_utc = as_datetime(created_utc)) %>% mutate(day = round_date(created_utc, unit = "day"))
+times_per_day = comments_sent %>% group_by(author, day) %>% summarize(times_per_day = n())
+
+times_per_day = times_per_day %>% group_by(author) %>% mutate(daycounter = 1) %>% summarise(num_pol_posts = sum(times_per_day), mean_pol_posts = mean(times_per_day), days_active = sum(daycounter))
+
+comments_sent2 = comments_sent %>% full_join(times_per_day)
+```
+
