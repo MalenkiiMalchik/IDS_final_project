@@ -1,9 +1,54 @@
 ---
-title: "Thesis Attempt 1"
+title: "Exploring Political Speech on Reddit"
+subtitle: "Using sentiment analysis to classify political speech and metadata features to predict political affinity"
 author: "Alex Richardson"
 date: "12/10/2019"
-output: html_document
+header-includes:
+  - \usepackage{setspace}\doublespacing
+output: pdf_document
+toc: true
+fontsize: 12pt
 ---
+
+
+### Introduction
+
+#### Project Aims
+In comparison to other platforms, very little work has been done to explore political speech on Reddit. This is surprising, because political discussion is one of the major features of the social media platform, and its nesting comment structure provides a fertile ground for academic exploration. 
+
+Reddit is pseudonymous, a feature that presents a double-edged sword to researchers. Because there is relatively little risk of users being personally identified, Reddit does not place limits on researchers' use of its data. However, this means that researchers also have no access to users' demographic information. In further study of Reddit's specific political environment and in study of the broader political discourse online, it would be useful to have means of classifying users by political party.
+
+In this project, I attempted to answer two questions. First, can we use basic sentiment analysis to classify how Reddit users feel about political candidates? Second, can these classifications be predicted using the metadata features that are present in user comments and inferred features made by combining existing features. 
+
+#### Methods Overview
+As part of a larger project, I used a very specific subset of Reddit users. These users all responded to at least one post made by an account suspected of generating Russian propaganda in the lead-up to the 2016 U.S. election. This was accomplished by first pulling all of the posts made by a set of nearly 1,000 accounts that were identified by Reddit as suspected propagandists (https://www.reddit.com/wiki/suspiciousaccounts) during 2016. I then pulled in responses to each of those posts, and finally pulled in the comment histories of each unique response author.
+
+I limited comments to those that made an explicit mention of the three most well-known candidates in the 2016 election, Hillary Clinton, Donald Trump, and Bernie Sanders, as well as the two main U.S. political parties. After some preliminary data exploration, I used a political sentiment lexicon to create a sentiment score for each comment mentioning a candidate or party and then averaged those scores for each user. This allowed me to create compound scores that I presumed to be more generally useful: Liberal, a scale that is positive for general support of liberal candidates and parties and negative for support of conservative candidates and parties; and Antiestablishment, which is positive for support of the two "antiestablishment" candidates in the race, Donald Trump and Bernie Sanders, and negative for support of Hillary Clinton or either of the two parties.
+
+In order to attempt to predict these measures, I used several approaches. I used or created a large number of features that I believed would be fairly predictive, like Subreddit activity, number of posts per day, average karma, etc. In a separate track of inquiry, I also created a term-frequency-inverse-document-frequency matrix to attempt prediction from these features. I ran several machine learning models, including random classifiers and support vector machines, as well as k-nearest-neighbor models.
+
+### Background
+This project began as a part of a larger project intended to quantify the impact - if any - of Russian propaganda on Redditors' political affinity. There has been extremely little quantitative research into this question so far on any platform, and none on Reddit. The paper that did^{1} made use of longitudinal survey data of slightly over 1,000 regular Twitter users. This approach gave them useful insight into the demographics and political views of their studied users, but had the unfortunate limitation of including very few exposed users. Among their sample, just 44 individuals had any contact with Russian propaganda.
+
+My approach to that problem reverses the challenges. I have no shortage of exposed users - indeed, identifying a sufficient quantity of unexposed users who fairly match the exposed set in order to establish a control presents a challenge of its own - but I have no information about their political views outside of their submissions on Reddit. This project represents a first attempt at overcoming some of those challenges. 
+
+Using sentiment analysis to infer political sentiment from online corpuses is a common, if often fraught approach. Bakliwal et al. conducted a useful study of various methods of sentiment analysis for political classification on Twitter which, in addition to informing my methods going forward, were the deciding factor in choosing a sentiment lexicon.^{2} Even in the best cases, automatically generated sentiment analysis is typically only ~60 percent accurate, as is evident in my results.
+
+While I found no academic literature using metadata features to predict political affiliation on Reddit, there is research into using textual features to predict gender and demographic information.^{3} There is also a logical basis for using metadata features in this way. Users who frequently post to The_Donald are generally more likely to be supporters of the then-candidate than detractors. The same is true of the Bernie Sanders subreddit, FeelTheBern, and Hillary Clinton's subreddit HillaryforPresident. More niche subreddits should also be indicative of political views. HillaryforPrison and EnoughTrumpSpam have clear political bents. Subreddits like Conspiracy, PoliticalDiscussion, and NeutralPolitics also have political leanings, even if they are less explicit. 
+
+I also suspect that different users make use of Reddit in different ways that should become evident with enough study and data. While I wouldn't venture a guess as to what the effects might be, I believe that users who post extensively on the platform are likely to have political views that are systematically different from those who use it casually. It also seems likely that users with significantly older accounts or higher average scores or deeper average nest levels are systematically different in some way. 
+
+### Data
+
+#### Data Provenance
+Reddit provides an API for researchers and others who wish to obtain its data at scale. Unfortunately for my purposes, there are limits placed on how that API can be used that would make it difficult or impossible for this project to have been completed. Instead, I made use of an API maintained by pushshift.io,^{4} which I accessed through its Python user "psaw."^{5}
+
+I began by scraping the usernames of Russian propaganda accounts off of a Reddit page using the rvest package.^{6} These I cleaned to remove the preceding "/u/" and fed passed into Python using reticulate.^{7} Then, with psaw, I looped through each username to pull in every post that each user made during 2016. (Several times in this project I refer to "posts" and "comments." Posts are top-level submissions that include a title and either text for discussion or a link. Comments are generally smaller pieces of text in response to a post or another comment.) These return Reddit API Objects which are small environments containing variables holding values. I initially began by looping through these and appending each object to a list and each list, finally, to a pandas dataframe.^{8} I later discovered a method of creating a dictionary using a function native to Reddit API Objects, but this method actually proved to be slower for large datasets.
+
+Using the post ids that come with these posts, I looped through these to obtain comments, including the author of the comment. These I limited to 100 comments per post for the sake of conserving computing power, but for future analysis have already begun expanding this to 1,000. This returned generator objects which then had to be subsequently looped through again before they could be turned into dataframes. I cleaned this list using tidyverse packages^{9} - which I use extensively throughout - to remove duplicates, obviously automated accounts, and users that had been deleted prior to ingestion by pushshift.io. With a list of users who had commented on suspected propaganda posts in hand, I looped through authors again in order to obtain all of the list's comments in 2016. Once again, these returned generator objects, which yielded Reddit API Objects, which finally yielded my dataset of exposed users' comments.
+
+
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -13,9 +58,15 @@ require(recipes)
 require(lubridate)
 require(fastDummies)
 require(caret)
+require(rvest)
+require(tidytext)
+require(reshape2)
+require(topicmodels)
+require(quanteda)
+require(ranger)
 ```
 
-```{r Scraping usernames and karmas, eval=FALSE}
+```{r Scraping usernames and karmas, eval=FALSE, echo=FALSE}
 
  raw = read_html("https://www.reddit.com/wiki/suspiciousaccounts")
 table = raw %>% 
@@ -24,7 +75,7 @@ table = raw %>%
 table = data.frame(table)
 ```
 
-```{r Getting rid of "/u" and making a list of usernames, eval=FALSE}
+```{r Getting rid of "/u" and making a list of usernames, eval=FALSE, echo=FALSE}
 usernamelist = c()
 for(n in 1:length(table$Username)){
   table$Username[n] = str_remove(table$Username[n], "u/")
@@ -37,9 +88,10 @@ table
 ```
 
 
-```{python setup, eval=FALSE}
+```{python, eval=FALSE, echo=FALSE}
 import psaw
 import datetime as dt
+import pandas as pd
 
 from psaw import PushshiftAPI
 
@@ -48,7 +100,7 @@ api = PushshiftAPI()
 ```
 
 
-```{python Pulling in Threadlist, eval=FALSE}
+```{python Pulling in Threadlist, eval=FALSE, echo=FALSE}
 
 pyusernamelist = r.usernamelist
 
@@ -64,7 +116,7 @@ for n in pyusernamelist:
   
 ```
 
-```{r Cleaning Threadlist a Bit, eval=FALSE}
+```{r Cleaning Threadlist a Bit, eval=FALSE, echo=FALSE}
 threadlist = py$threadlist
 cleaner_threadlist = c()
 for (n in threadlist){
@@ -74,7 +126,7 @@ for (n in threadlist){
 }
 ```
 
-```{r Cleaning them the rest of the way, eval=FALSE}
+```{r Cleaning them the rest of the way, eval=FALSE, echo=FALSE}
 cleanest_threadlist = c()
 author = c()
 date = c()
@@ -117,7 +169,7 @@ idlist = as.character(cleanest_threadlist$ID)
 write_csv(cleanest_threadlist, here("Threadlist.csv"))
 ```
 
-```{python Pulling in Comment Author Gens, eval=FALSE}
+```{python Pulling in Comment Author Gens, eval=FALSE, echo=FALSE}
 pyidlist = r.idlist
 
 x = 0
@@ -134,7 +186,7 @@ for n in pyidlist:
 
 ```
 
-```{python Pulling in Comment Author List, eval=FALSE}
+```{python Pulling in Comment Author List, eval=FALSE, echo=FALSE}
 caches_list = []
 max_response_cache = 100
 cache = []
@@ -147,7 +199,7 @@ for c in comment_author_list:
 ```
 
 
-```{r Cleaning Comment Author List, eval=FALSE}
+```{r Cleaning Comment Author List, eval=FALSE, echo=FALSE}
 final_cal = c()
 author = c()
 date = c()
@@ -181,16 +233,15 @@ final_cal = rename(final_cal, "Author" = aholder, "Date" = dholder, "Subreddit" 
 
 ```
 
-```{r Grabbing Unique Authors, eval=FALSE}
+```{r Grabbing Unique Authors, eval=FALSE, echo=FALSE}
 
 final_cal = final_cal %>% mutate(AuthDup = as.numeric(duplicated(Author))) %>% filter(AuthDup==0)
 comment_author_list = final_cal$Author
 
 ```
 
-### Note: I had to manually clean out the 'users' [Deleted] and AutoModerator, for obvious reasons. Also, for reasons that are still an abject mystery, I had to run the code below in Spyder because RStudio seems to have lost track of Python.
 
-```{python Pulling in Comment Gens, eval=FALSE}
+```{python Pulling in Comment Gens, eval=FALSE, echo=FALSE}
 start_epoch=int(dt.datetime(2016, 1, 1).timestamp())
 end_epoch=int(dt.datetime(2016, 12, 31).timestamp())
 
@@ -210,7 +261,7 @@ for n in py_comm_auth_list:
 
 ```
 
-```{python Pulling in Comments, eval=FALSE}
+```{python Pulling in Comments, eval=FALSE, echo=FALSE}
 hist_caches_list = []
 hist_cache = []
 for c in comment_history_gen:
@@ -220,7 +271,7 @@ for c in comment_history_gen:
     
 ```
 
-```{python Assembling Comments into a DataFrame, eval=FALSE}
+```{python Assembling Comments into a DataFrame, eval=FALSE, echo=FALSE}
 
 dataset = pd.DataFrame()
 x = 0
@@ -233,11 +284,11 @@ dataset.to_csv('dataset.csv')
 
 ```
 
-```{r Reading in the Dataset}
+```{r Reading in the Dataset, warning=FALSE, echo=FALSE}
 dataset = read_csv("dataset.csv")
 ```
 
-```{r Breaking the Dataset}
+```{r Breaking the Dataset, warning=FALSE, echo=FALSE}
 
 set.seed(1989)
 dataset = dataset %>% group_by(author)
@@ -250,7 +301,7 @@ dim(train_data)
 ```
 
 
-```{r Mentions Candidate}
+```{r Mentions Candidate, warning=FALSE, echo=FALSE}
 
 train_data = train_data %>% filter((str_detect(body, "trump")) | (str_detect(body, "donald")) | (str_detect(body, "hillary")) | (str_detect(body, "clinton")) | (str_detect(body, "sanders")) | (str_detect(body, "bernie")) | (str_detect(body, "Trump")) | (str_detect(body, "Donald")) | (str_detect(body, "Hillary")) | (str_detect(body, "Clinton")) | (str_detect(body, "Sanders")) | (str_detect(body, "Bernie")) | (str_detect(body, "democrat")) | (str_detect(body, "republican")) | (str_detect(body, "gop")) | (str_detect(body, "GOP")) | (str_detect(body, "Republican")) | (str_detect(body, "Democrat")) | (str_detect(body, "Dems "))| (str_detect(body, "dems "))) 
 
@@ -259,7 +310,7 @@ test_data = test_data %>% filter((str_detect(body, "trump")) | (str_detect(body,
 
 ```
 
-```{r Marking Candidate Mention}
+```{r Marking Candidate Mention, warning=FALSE, echo=FALSE}
 
 train_data = train_data %>% mutate(mention = case_when(
          str_detect(body, "bernie") ~ "Bernie",
@@ -308,7 +359,14 @@ test_data = test_data %>% mutate(mention = case_when(
          ))
 ```
 
-```{r}
+#### Data Cleaning and Exploration
+Before anything else, I grouped the data by author, or user, and split it into a training set and test set with an 80 percent to 20 percent split using the caret package.^{10}
+
+For the purposes of this analysis, I limited the data to comments that made explicit mention of the phrases "Donald", "Trump", "Hillary", "Clinton", "Bernie", "Sanders", "Democrat", "Republican", "GOP", and "Dems", including their lower-case variants using tidytext.^{11} At this stage, I also appended an indicator for which candidate or party the comment mentioned. 
+
+Already, this lets us examine some interesting features in the data. For example, when we look at which subreddits mention each candidate/party the most, we see some predictable results - The_Donald mentions Trump most often, for example, but some unpredictable ones:
+
+```{r, warning=FALSE, echo=FALSE}
 
 train_data = train_data %>% ungroup()
 
@@ -321,14 +379,19 @@ sums_of_mentions %>% melt() %>% group_by(variable) %>% top_n(5, value) %>% ungro
   geom_col(show.legend = F) +
   xlab(NULL) +
   coord_flip() +
+  ggthemes::theme_fivethirtyeight() +
   facet_wrap(~variable,ncol=2,scales="free") +
+  labs(fill="",
+       title="Top Subreddits by Mention",
+       subtitle="The Subreddits That Most Frequently Mention Each Category"
+       ) +
   theme(text=element_text(size=10))
 
 ```
+As we can see, The_Donald is actually on the list for every candidate/party and is also the most common mentioner of Hillary Clinton. Politics mentions Republicans the most, but Worldnews mentions Democrats the most. That might represent an interesting reversal of their typical perceptions, or it might suggest that most mentions are simply negative in nature.
 
----------------------------------------------------------------------------------------------------------------------------
-
-```{r Cleaning and Wording}
+Next, I changed the unit of analysis from Comment to Author-Word, removed stop words like "the" and "and", and stemmed them to eliminate endings like "-ing" or "-er" that add little to our analysis. I also filtered out words that were parts of URLs and the subreddit NewZealand, which had spurrilously found its way into my data because of repeated use of "trump" as a verb.
+```{r Cleaning and Wording, warning=FALSE, echo=FALSE}
 user_words = train_data %>% group_by(author) %>%  unnest_tokens(word,body,token = "words") %>% anti_join(stop_words) %>%  mutate(word = SnowballC::wordStem(word)) 
 
 user_words = user_words %>% filter(!str_detect(word,"http")) %>% filter(!str_detect(word,"www")) %>% filter(!str_detect(word,"gt")) %>% filter(!str_detect(word,"redd.it")) %>% filter(!str_detect(word,"\\d")) %>% filter(!str_detect(word,".com")) %>% filter(!str_detect(word,"_")) %>% filter(!subreddit=="newzealand")
@@ -338,9 +401,7 @@ user_words_test = test_data %>% group_by(author) %>%  unnest_tokens(word,body,to
 user_words_test = user_words_test %>% filter(!str_detect(word,"http")) %>% filter(!str_detect(word,"www")) %>% filter(!str_detect(word,"gt")) %>% filter(!str_detect(word,"redd.it")) %>% filter(!str_detect(word,"\\d")) %>% filter(!str_detect(word,".com")) %>% filter(!str_detect(word,"_")) %>% filter(!subreddit=="newzealand")
 
 ```
-
-
-```{r User-Word Frequency Subreddit}
+```{r User-Word Frequency Subreddit, warning=FALSE, echo=FALSE}
 
 user_words = user_words %>% ungroup() %>% group_by(subreddit)
 
@@ -351,8 +412,9 @@ user_counts4 <-
   bind_tf_idf(word, subreddit, n)
 
 ```
+For further exploration, I created a term-frequency-inverse-document-frequency matrix at the Subreddit-Word level of analysis. I then limited the matrix to a few subreddits of interest, filtered out the names of the candidates and plotted the most important words to each. The results were fairly predictable, though "dog" reaching the top of News is an interesting development.
 
-```{r Trying a subreddit Visualization}
+```{r Trying a subreddit Visualization, warning=FALSE, echo=FALSE}
 
 user_counts4 %>% filter((subreddit == "The_Donald") | (subreddit == "politics") | (subreddit == "conspiracy") | (subreddit == "news") | (subreddit == "worldnews")) %>% filter(!str_detect(word,"berni")) %>% filter(!str_detect(word,"donald")) %>% filter(!str_detect(word,"trump")) %>% filter(!str_detect(word,"clinton")) %>% filter(!str_detect(word,"hillari")) %>%
   group_by(subreddit) %>% 
@@ -363,13 +425,17 @@ user_counts4 %>% filter((subreddit == "The_Donald") | (subreddit == "politics") 
   geom_col(show.legend = F) +
   xlab(NULL) +
   coord_flip() +
+  ggthemes::theme_fivethirtyeight() +
+  labs(fill="",
+       title="TF-IDF For Political Subreddits"
+       ) +
   facet_wrap(~subreddit,ncol=1,scales="free") +
   theme(text=element_text(size=10))
 
 ```
 
 
-```{r}
+```{r, warning=FALSE, echo=FALSE}
 comments_corpus <- user_words %>% count(author, word) %>% cast_dtm(author,word,n)
 
 
@@ -387,7 +453,7 @@ comments_top_terms <-
   arrange(topic, -beta) # Arrange 
 ```
 
-```{r}
+```{r, warning=FALSE, echo=FALSE, eval=FALSE}
 comments_top_terms %>%
   mutate(term = reorder(term, beta)) %>%
   ggplot(aes(term, beta, fill = factor(topic))) +
@@ -397,7 +463,7 @@ comments_top_terms %>%
   theme(text=element_text(size=10))
 ```
 
-```{r Topic Models without Candidate Names}
+```{r Topic Models without Candidate Names, warning=FALSE, echo=FALSE}
 comments_corpus_pol <- user_words %>% ungroup() %>% filter(!str_detect(word,"berni")) %>% filter(!str_detect(word,"donald")) %>% filter(!str_detect(word,"trump")) %>% filter(!str_detect(word,"clinton")) %>% filter(!str_detect(word,"hillari")) %>% count(author, word) %>% cast_dtm(author,word,n)
 
 
@@ -415,7 +481,7 @@ comments_top_terms_pol <-
   arrange(topic, -beta) # Arrange 
 ```
 
-```{r}
+```{r, warning=FALSE, echo=FALSE, eval=FALSE}
 comments_top_terms_pol %>%
   mutate(term = reorder(term, beta)) %>%
   ggplot(aes(term, beta, fill = factor(topic))) +
@@ -425,8 +491,12 @@ comments_top_terms_pol %>%
   theme(text=element_text(size=10))
 ```
 
----------------------------------------------------------------------------------------------------------------------------
-```{r Sentiment Words}
+#### Including Sentiment
+Following in the footsteps of Bakliwal, et al., I opted for the SentiWordNet 3.0.0 sentiment dictionary. While no simple dictionary performs perfectly, SentiWordNet performed relatively well compared to other dictionaries. It required some cleaning of its own before it could be applied to the dataframe of User-Comment-Words. SentiWordNet includes a positive score and negative score, but the authors recommend subtracting one from another to create an objective score for most uses. 
+
+Here, I grouped by author and summarized sentiment in each mention category to get an estimation for each user's sentiment toward each candidate or party. I also created the aggregate scores Liberal, which summed sentiment for Bernie Sanders, Democrats, and Hillary Clinton and subtracted sentiment for Donald Trump and Republicans; and Antiestablishment, which summed support for Bernie Sanders and Donald Trump and subtracted support for Democrats, Republicans, and Hillary Clinton. The working theory here is that there are two interesting axes to investigate: support for politicians and parties along traditional partisan lines and support for the percieved antiestablishment figures in each party.
+
+```{r Sentiment Words, warning=FALSE, echo=FALSE}
 sentinet_lex = read_tsv("SentiWordNet_3.0.0.txt")
 sentinet_lex = sentinet_lex %>%  unnest_tokens(word,SynsetTerms,token = "words") %>% mutate(word = str_remove(string = word, pattern = "#")) %>% mutate(word = str_remove(string = word, pattern = "\\d")) %>% filter(is.na(word)==FALSE) %>% mutate(word = SnowballC::wordStem(word)) %>% filter(as.numeric(duplicated(word))==0)
 sent_text <- user_words %>% inner_join(sentinet_lex) 
@@ -437,7 +507,7 @@ sum_sent_text[is.na(sum_sent_text)] <- 0
 sum_sent_text = sum_sent_text %>% mutate(Liberal = Bernie+Democrat+Hillary-Donald-Republican) %>% mutate(Antiestablishment = Bernie+Donald-Democrat-Hillary-Republican)
 ```
 
-```{r Sentiment Words for Test}
+```{r Sentiment Words for Test, warning=FALSE, echo=FALSE}
 sent_text_test <- user_words_test %>% inner_join(sentinet_lex) 
 sent_text_test <- sent_text_test %>% group_by(author, mention)
 sum_sent_text_test <- sent_text_test %>% summarize(PosSentiment = mean(PosScore), NegScore = mean(NegScore), ObjScore = mean(PosScore-NegScore)) %>% mutate(Positive = (ObjScore>0))
@@ -445,23 +515,47 @@ sum_sent_text_test = sum_sent_text_test %>% select(author, mention, ObjScore) %>
 sum_sent_text_test[is.na(sum_sent_text_test)] <- 0
 sum_sent_text_test = sum_sent_text_test %>% mutate(Liberal = Bernie+Democrat+Hillary-Donald-Republican) %>% mutate(Antiestablishment = Bernie+Donald-Democrat-Hillary-Republican)
 ```
+I plotted these sentiments against each other in order to get a sense of whether the two were meaningfully connected. This did not appear to be the case in this dataset, but I intend to examine this further with a larger dataset and a more robust method of classifying sentiment. Intuitively, however, this makes sense. Both Donald Trump and Bernie Sanders claimed to represent antiestablishment sentiments in the 2016 elections, but were extremely different in terms of political views.
 
-```{r}
+```{r, warning=FALSE, echo=FALSE}
 ggplot(sum_sent_text,
-       aes(x=Antiestablishment,y=Liberal)) +
+  aes(x=Antiestablishment,y=Liberal)) +
   geom_point() +
-  geom_smooth(method='lm', formula= y~x)
+  geom_smooth(method='lm', formula= y~x) +
+  ggthemes::theme_fivethirtyeight() +
+  labs(y="Antiestablishment Sentiment",
+       x="Liberal Sentiment",
+       title="Liberal Sentiment vs Antiestablishment Sentiment",
+       caption = "In this dataset, there didn't appear to be a strong connection between liberal and antiestablishment sentiments."
+       ) +
+  theme(plot.margin = margin(2,.8,2,.8, "cm"))
+
 ```
 
-```{r}
+After plotting the data, I appended the classifications to the larger dataset at the comment unit of analysis. I also switched from a continuous scale of sentiment to a positive or negative scale. Some evidence suggests that classification with a support vector machine is the strongest method of inferring political views on Twitter,^{12} and I decided to explore the theory that this would hold true on Reddit. I also attached the "Afinn" sentiment dictionary using similar methods in order to check for reliability. The striking result upon plotting the two against one another was that, for both classifications, there was clearly no relationship whatsoever.
+
+```{r, warning=FALSE, echo=FALSE}
 comments_sent = sum_sent_text %>% select(author, Liberal, Antiestablishment) %>% inner_join(train_data) %>% mutate(Liberal = (Liberal>0)) %>% mutate(Antiestablishment = (Antiestablishment>0))
 
 comments_sent_test = sum_sent_text_test %>% select(author, Liberal, Antiestablishment) %>% inner_join(test_data) %>% mutate(Liberal = (Liberal>0)) %>% mutate(Antiestablishment = (Antiestablishment>0))
 
 ```
 
+```{r, warning=FALSE, echo=FALSE}
+sent_dict <- get_sentiments("afinn")
+sent_text_x <- user_words %>% inner_join(sent_dict) 
+sent_text_x <- sent_text_x %>% group_by(author, mention)
+sum_sent_text_x <- sent_text_x %>% summarize(Average_Sentiment = mean(value))
+sum_sent_text_x = sum_sent_text_x %>% spread(mention, Average_Sentiment) 
+sum_sent_text_x[is.na(sum_sent_text_x)] <- 0
+sum_sent_text_x = sum_sent_text_x %>% mutate(Liberal = Bernie+Democrat+Hillary-Donald-Republican )%>% mutate(Antiestablishment = Bernie+Donald-Democrat-Hillary-Republican)
 
-```{r Cleaning up the dataset to create some new variables}
+comments_sent_x = sum_sent_text_x %>% select(author, Liberal_afinn = Liberal, Antiestablishment_afinn = Antiestablishment) %>% inner_join(sum_sent_text) 
+```
+
+Finally, I cleaned the dataset in preparation for running models. This involved reading in datetimes with lubridate,^{13} creating variables for age of the account, total posts for the year, average number of posts for each day active, and dummy variables for subreddits and mentions. I summed these dummy variables to get total activity in a subreddit and mention for each users and I averaged a number of other variables, like controversiality, gilded, nest level, and score. This provided a large number of profiling features at the User level of analysis in order to predict the classifiers. I normalized the scale for easier model running using recipes^{14} and created 5 folds in the data for cross-validation. 
+
+```{r Cleaning up the dataset to create some new variables, warning=FALSE, echo=FALSE}
 comments_sent = comments_sent %>% mutate(created_utc = as_datetime(created_utc)) %>% mutate(day = round_date(created_utc, unit = "day"))
 times_per_day = comments_sent %>% group_by(author, day) %>% summarize(times_per_day = n())
 
@@ -492,7 +586,7 @@ prep_train_set = prep_train_set %>% mutate(Antiestablishment = case_when(
 
 ```
 
-```{r Cleaning up the dataset to create some new variables for test}
+```{r Cleaning up the dataset to create some new variables for test, warning=FALSE, echo=FALSE}
 comments_sent_test = comments_sent_test %>% mutate(created_utc = as_datetime(created_utc)) %>% mutate(day = round_date(created_utc, unit = "day"))
 times_per_day_test = comments_sent_test %>% group_by(author, day) %>% summarize(times_per_day = n())
 
@@ -523,12 +617,10 @@ prep_test_set = prep_test_set %>% mutate(Antiestablishment = case_when(
 ```
 
 
-```{r Cleaning for Liberal}
-prep_train_set_Liberal = prep_train_set %>% select(-Antiestablishment)
+```{r Cleaning for Liberal, warning=FALSE, echo=FALSE}
+prep_train_set_Liberal = prep_train_set %>% select(-Antiestablishment,-author)
 
-prep_test_set_Liberal = prep_test_set %>% select(-Antiestablishment)
-
-skim(prep_test_set_Liberal)
+prep_test_set_Liberal = prep_test_set %>% select(-Antiestablishment,-author)
 
 rcp <- 
   recipe(Liberal~.,prep_train_set_Liberal) %>% 
@@ -538,13 +630,13 @@ rcp <-
 train_data_Liberal <- bake(rcp,prep_train_set_Liberal)
 test_data_Liberal <- bake(rcp,prep_test_set_Liberal)
 
-skim(test_data_Liberal)
+
 ```
 
-```{r Cleaning for Antiestablishment}
-prep_train_set_Anti = prep_train_set %>% select(-Liberal)
+```{r Cleaning for Antiestablishment, warning=FALSE, echo=FALSE}
+prep_train_set_Anti = prep_train_set %>% select(-Liberal,-author)
 
-prep_test_set_Anti = prep_test_set %>% select(-Liberal)
+prep_test_set_Anti = prep_test_set %>% select(-Liberal,-author)
 
 rcp <- 
   recipe(Antiestablishment~.,prep_train_set_Anti) %>% 
@@ -556,7 +648,7 @@ test_data_Anti <- bake(rcp,prep_test_set_Anti)
 
 ```
 
-```{r User-Word Frequency}
+```{r User-Word Frequency, warning=FALSE, echo=FALSE}
 
 words_sent = comments_sent2 %>% group_by(author) %>%  unnest_tokens(word,body,token = "words") %>% anti_join(stop_words) %>%  mutate(word = SnowballC::wordStem(word))
 
@@ -573,157 +665,192 @@ sent_counts = words_sent %>%  count(id, word) %>% cast_dtm(document = id, term =
 
 ```
 
-```{r Folds Liberal}
+```{r Folds Liberal, warning=FALSE, echo=FALSE}
 set.seed(1989) 
 
-folds <- createFolds(train_data_Liberal$Liberal, k = 5) 
-
-sapply(folds,length)
-```
-
-```{r Folds Antiestablishment}
-set.seed(1989) 
-
-folds <- createFolds(train_data_Anti$Antiestablishment, k = 5) 
-
-sapply(folds,length)
-```
-
-```{r Folds tf_itf Liberal}
-set.seed(1989) 
-
-folds <- createFolds(comments_sent2$Liberal, k = 5) 
-
-sapply(folds,length)
-```
-
-```{r Folds tf_itf Antiestablishment}
-set.seed(1989) 
-
-folds <- createFolds(comments_sent2$Antiestablishment, k = 5) 
-
-sapply(folds,length)
-```
+foldsLiberal <- createFolds(train_data_Liberal$Liberal, k = 5) 
 
 
-```{r}
-control_conditions <- 
+control_conditions_liberal <- 
   trainControl(method='cv', 
                summaryFunction = twoClassSummary,
-               index = folds,
+               index = foldsLiberal,
                classProbs = TRUE
   )
 ```
 
-```{r tf_idf RF Liberal}
+
+```{r Folds Antiestablishment, warning=FALSE, echo=FALSE}
+set.seed(1989) 
+
+foldsAnti <- createFolds(train_data_Anti$Antiestablishment, k = 5) 
+
+control_conditions_anti <- 
+  trainControl(method='cv', 
+               summaryFunction = twoClassSummary,
+               index = foldsAnti,
+               classProbs = TRUE
+  )
+
+```
+
+```{r Folds tf_itf Liberal, warning=FALSE, echo=FALSE}
+set.seed(1989) 
+
+folds_tf_idf_liberal <- createFolds(comments_sent2$Liberal, k = 5) 
+
+control_conditions_tf_idf_liberal <- 
+  trainControl(method='cv', 
+               summaryFunction = twoClassSummary,
+               index = folds_tf_idf_liberal,
+               classProbs = TRUE
+  )
+
+```
+
+```{r Folds tf_itf Antiestablishment, warning=FALSE, echo=FALSE}
+set.seed(1989) 
+
+folds_tf_idf_anti <- createFolds(comments_sent2$Antiestablishment, k = 5) 
+
+
+control_conditions_tf_idf_anti <- 
+  trainControl(method='cv', 
+               summaryFunction = twoClassSummary,
+               index = folds_tf_idf_anti,
+               classProbs = TRUE
+  )
+
+```
+
+
+
+```{r tf_idf RF Liberal, warning=FALSE, echo=FALSE, cache=TRUE}
 mention_rf_liberal <- train(x = as.matrix(sent_counts),
                      y = factor(comments_sent3$Liberal),
                      method = "ranger",
                      metric = "ROC",
-                     trControl = control_conditions
+                     trControl = control_conditions_tf_idf_liberal
 )
 ```
 
-```{r tf_idf RF Antiestablishment}
+```{r tf_idf RF Antiestablishment, warning=FALSE, echo=FALSE, cache=TRUE}
 mention_rf_antiestablishment <- train(x = as.matrix(sent_counts),
                      y = factor(comments_sent3$Antiestablishment),
                      method = "ranger",
                      metric = "ROC",
-                     trControl = control_conditions
+                     trControl = control_conditions_tf_idf_anti
 )
 ```
 
-```{r Random Forest Liberal}
+```{r Random Forest Liberal, warning=FALSE, echo=FALSE, cache=TRUE}
 mod_rf_liberal <-
   train(Liberal ~ ., 
         data=train_data_Liberal, 
         method = "ranger", 
         metric = "ROC",     
-        trControl = control_conditions
+        trControl = control_conditions_liberal
   )
 ```
 
-```{r Random Forest Antiestablishment}
+```{r GLM Liberal, warning=FALSE, echo=FALSE, cache=TRUE}
+mod_glm_liberal <-
+  train(Liberal ~ ., 
+        data=train_data_Liberal, 
+        method = "glm", 
+        metric = "ROC",     
+        trControl = control_conditions_liberal
+  )
+
+```
+
+```{r Random Forest Antiestablishment, warning=FALSE, echo=FALSE, cache=TRUE}
 mod_rf_anti <-
   train(Antiestablishment ~ ., 
         data=train_data_Anti, 
         method = "ranger", 
         metric = "ROC",     
-        trControl = control_conditions
+        trControl = control_conditions_anti
   )
 
 ```
 
-```{r}
+```{r, warning=FALSE, echo=FALSE, cache=TRUE}
 mod_svm_linear_liberal <-
   train(Liberal ~ ., 
         data=train_data_Liberal,
          method = "svmLinear", # SVM with a polynomial Kernel
         metric = "ROC", # area under the curve
         tuneGrid = expand.grid(C = c(.35,.4,.45)), # Add two tuning parameters
-        trControl = control_conditions
+        trControl = control_conditions_liberal
   )
-mod_svm_linear_liberal
 ```
 
-```{r}
+```{r, warning=FALSE, echo=FALSE, cache=TRUE}
 mod_svm_linear_anti <-
   train(Antiestablishment ~ ., 
         data=train_data_Anti,
          method = "svmLinear", # SVM with a polynomial Kernel
         metric = "ROC", # area under the curve
         tuneGrid = expand.grid(C = c(5,.1,1)), # Add two tuning parameters
-        trControl = control_conditions
+        trControl = control_conditions_anti
   )
-mod_svm_linear_anti
 ```
 
-```{r}
+```{r, warning=FALSE, echo=FALSE, cache=TRUE}
 mod_svm_radial_liberal <-
   train(Liberal ~ ., 
         data=train_data_Liberal, 
          method = "svmPoly", # SVM with a Radial Kernel
         metric = "ROC", # area under the curve
-        trControl = control_conditions
+        trControl = control_conditions_liberal
   )
-plot(mod_svm_radial_liberal)
 ```
 
-```{r}
+```{r, warning=FALSE, echo=FALSE, cache=TRUE}
 mod_svm_radial_anti <-
   train(Antiestablishment ~ ., 
         data=train_data_Anti, 
          method = "svmPoly", # SVM with a Radial Kernel
         metric = "ROC", # area under the curve
-        trControl = control_conditions
+        trControl = control_conditions_anti
   )
-plot(mod_svm_radial_anti)
 ```
 
-```{r}
+```{r, warning=FALSE, echo=FALSE, cache=TRUE}
 mod_knn_liberal <-
   train(Liberal ~ ., 
         data=train_data_Liberal, 
         method = "knn", # K-Nearest Neighbors Algorithm
         metric = "ROC", # area under the curve
-        trControl = control_conditions
+        trControl = control_conditions_liberal
   )
-mod_knn_liberal
 ```
 
-```{r}
+```{r, warning=FALSE, echo=FALSE, cache=TRUE}
 mod_knn_anti <-
   train(Antiestablishment ~ ., 
         data=train_data_Anti, 
         method = "knn", # K-Nearest Neighbors Algorithm
         metric = "ROC", # area under the curve
-        trControl = control_conditions
+        trControl = control_conditions_anti
   )
-mod_knn_anti
 ```
 
+### Analysis and Results
+I ran four models for each measure of political sentiment, Liberal and Antiestablishment. Because I changed from a continuous measure of sentiment to a classification, each model attempted to classify whether a user was liberal or conservative, or antiestablishment or establishment in their sentiment, respectively. I directed each model to optimize for ROC, a ratio between sensitivity, or the ratio of correctly classified positive results, and specificity, or the ratio of correctly classified negative results. The resulting models were, in a word, terrible predictors of each measure of political sentiment, an unfortunate reality I will explore in the discussion section.
 
-```{r}
+The simplest model was k-nearest-neighbors, a modeling technique that surveys a number n of observations that are similar to each observation and then chooses the result with the most "votes" for that observation's prediction. For Liberal, the best KNN model was at k=5 with an ROC of .518 - roughly 1.8 percentage points better than a coin flip. For antiestablishment, K=5 was also the best predictor with an ROC of 0.522.
+
+I also ran Random Forest models, which use resampling to create many small samples (and randomly sample features for prediction) and use machine learning to create classification trees for those samples. These classification trees are fairly simple individually, but taken together and allowed to "vote" they can be formidable predictors. In this case, however, the random forest models did not fair much better. For Liberal, random forest was the worst predictor, the best model generating an ROC of 0.497 - actually worse than a coin flip. For Antiestablishment, the best model created an ROC of 0.565.
+
+I also ran two support vector machines. These are classification algorithms that draw lines in multi-dimensional space to separate observations in either category. In this case, I ran a linear SVM, which draws a "line" and a radial SVM, which creates a more complex shape. The linear SVM performed relatively well for Liberal, generating an ROC of 0.543, but relatively poorly for Antiestablishment - 0.491. However, while the ROC generated by the radial model could still only be classified as "bad" on an objective scale, it performed best for both models. The Liberal ROC for the radial SVM was 0.539 and the Antiestablishment ROC was 0.565.
+
+Finally, I ran a random forest model using the term-frequency inverse-document-frequency as a predictor for the classifiers. This ROC was comparably good - 0.581 for Liberal and 0.540 for Antiestablishment.
+
+#### Liberal ROCs by Model
+
+```{r, warning=FALSE, echo=FALSE}
 mod_list_liberal <-
   list(
     knn = mod_knn_liberal,
@@ -736,7 +863,9 @@ mod_list_liberal <-
 dotplot(resamples(mod_list_liberal))
 ```
 
-```{r}
+#### Antiestablishment ROCs by Model
+
+```{r, warning=FALSE, echo=FALSE}
 mod_list_anti <-
   list(
     knn = mod_knn_anti,
@@ -749,15 +878,274 @@ mod_list_anti <-
 dotplot(resamples(mod_list_anti))
 ```
 
-```{r}
-test_data_Liberal = test_data_Liberal %>% filter(is.na(Liberal)==FALSE, is.na(author)==FALSE)
-pred_liberal <- predict(mod_svm_linear_liberal,newdata = test_data_Liberal)
-confusionMatrix(table(pred_liberal,test_data_Liberal$Liberal))
-```
+### Discussion
 
-```{r}
-test_data_Anti = test_data_Anti %>% filter(is.na(Antiestablishment)==FALSE, is.na(author)==FALSE)
-pred_anti <- predict(mod_svm_radial_anti,newdata = test_data_Anti)
+#### Measuring Success
 
-"?}
-```
+Ultimately, this project represents progress toward a larger goal of accurately classifying political views on Reddit. While it was not successful by itself, it yielded useful insights for the future. 
+
+There are two places where project could have failed: in creating an accurate measure of political affinity for each post or in accurately predicting that measure. It could, of course, have failed in both. Because of the clear unrelieability of sentiment dictionaries - especially as highlighted by the complete absence of correlation with the results between two dictionaries - I suspect the former to be the most important point of failure. There is a good logical grounding for subreddits and other features being reasonable predictors of political affinity. The small, but relative success of using a tf-idf matrix as a predictor for Liberal also suggests that prediction of affiliation is possible using features.
+
+In addition to the problems with sentiment dictionaries, the small sample size that I was ultimately working with was simply too small to generate useful predictive power. I believe that a larger sample size of affected users who discussed political candidates and parties might generate more useful results. 
+
+#### Expanded and Alternative Analyses
+
+There are several tools that I considered applying but ultimately did not, either due to technical challenges or a poor fit for the data. Initially, I used a continuous scale for political affinity and attempted to classify it with regression models of various types. These performed especially badly, which I suspect is due to the fact that the data was so fuzzy to begin with. After choosing classifiers, I experimented with parametric models, like logit and probit, in the hopes that some parameters would prove to be useful even with low overall predictive power, but the small ultimate sample size made that impossible as well.
+
+Looking ahead, I hope to use supervised aggregate sentiment analysis in order to classify political affinity for each candidate and party individually. This involves manually classifying a relatively small number of comments and then generates a distribution of classifications for the body of the sample (as opposed to individual classification), but this disadvantage comes with a significantly higher level of accuracy. 
+
+I also plan to increase my sample size dramatically, first to 1,000 comments on each post and then, perhaps, to every comment. I would also like to pull in users who responded to comments made by the propaganda accounts, rather than just posts.
+
+Finally, while I do not plan, for the purposes of my larger project, to use metadata and textual features as predictors of political affinity per-se, I do plan to use them for matching purposes. This might be tested with their predictive power for affinity. While some increase may be had by simply improving the measure of affinity, I also believe that including both metadata features and textual features via tf-idf would be useful.
+
+### References
+
+1. Bail, Christopher A., Brian Guay, Emily Maloney, Aidan Combs, D. Sunshine Hillygus, Friedolin Merhout, Deen Freelon, and Alexander Volfovsky. 2019. “Assessing the Russian Internet Research Agency’s Impact on the Political Attitudes and Behaviors of American Twitter Users in Late 2017.” Proceedings of the National Academy of Sciences, November. https://doi.org/10.1073/pnas.1906420116.
+2. Bakliwal, Akshat, Jennifer Foster, Jennifer van der Puil, Ron O’Brien, Lamia Tounsi, and Mark Hughes. 2013. “Sentiment Analysis of Political Tweets: Towards an Accurate Classifier.” In Proceedings of the Workshop on Language Analysis in Social Media, 49–58. Atlanta, Georgia: Association for Computational Linguistics. https://www.aclweb.org/anthology/W13-1106.
+3. Fabian, Benjamin, Annika Baumann, and Marian Keil. 2015. “Privacy on Reddit? Towards Large-Scale User Classification.” ECIS 2015 Completed Research Papers, May. https://doi.org/10.18151/7217310.
+4. “API Documentation.” n.d. Pushshift.Io (blog). Accessed December 14, 2019. https://pushshift.io/api-parameters/.
+5. [
+  {
+    "URL": "http://github.com/dmarx/psaw",
+    "abstract": "Pushshift.io API Wrapper for reddit.com public comment/submission search",
+    "accessed": {
+      "date-parts": [
+        [
+          2019,
+          12,
+          14
+        ]
+      ]
+    },
+    "author": [
+      {
+        "literal": "David Marx"
+      }
+    ],
+    "categories": [
+      "software",
+      "python",
+      "libraries",
+      "pypi",
+      "Development Status :: 3 - Alpha",
+      "Environment :: Console",
+      "Intended Audience :: Developers",
+      "License :: OSI Approved :: BSD License",
+      "Natural Language :: English",
+      "Operating System :: OS Independent",
+      "Programming Language :: Python",
+      "Programming Language :: Python :: 3",
+      "Programming Language :: Python :: 3.4",
+      "Programming Language :: Python :: 3.5",
+      "Programming Language :: Python :: 3.6",
+      "Programming Language :: Python :: 3 :: Only",
+      "Programming Language :: Python :: Implementation :: CPython",
+      "Topic :: Utilities"
+    ],
+    "id": "psaw",
+    "issued": {
+      "date-parts": [
+        [
+          2018,
+          8,
+          14
+        ]
+      ]
+    },
+    "original-date": {
+      "date-parts": [
+        [
+          2018,
+          4,
+          15
+        ]
+      ]
+    },
+    "publisher": "GitHub",
+    "title": "psaw",
+    "type": "webpage",
+    "version": "0.0.7"
+  }
+]
+6. @Manual{,
+    title = {rvest: Easily Harvest (Scrape) Web Pages},
+    author = {Hadley Wickham},
+    year = {2019},
+    note = {R package version 0.3.4},
+    url = {https://CRAN.R-project.org/package=rvest},
+  }
+7. @Manual{,
+    title = {reticulate: Interface to 'Python'},
+    author = {Kevin Ushey and JJ Allaire and Yuan Tang},
+    year = {2019},
+    note = {R package version 1.13},
+    url = {https://CRAN.R-project.org/package=reticulate},
+  }
+8. [
+  {
+    "URL": "http://pandas.pydata.org",
+    "abstract": "Powerful data structures for data analysis, time series, and statistics",
+    "accessed": {
+      "date-parts": [
+        [
+          2019,
+          12,
+          14
+        ]
+      ]
+    },
+    "author": [
+      {
+        "literal": "The PyData Development Team"
+      }
+    ],
+    "categories": [
+      "software",
+      "python",
+      "libraries",
+      "pypi",
+      "Development Status :: 5 - Production/Stable",
+      "Environment :: Console",
+      "Intended Audience :: Science/Research",
+      "Operating System :: OS Independent",
+      "Programming Language :: Cython",
+      "Programming Language :: Python",
+      "Programming Language :: Python :: 2",
+      "Programming Language :: Python :: 2.7",
+      "Programming Language :: Python :: 3",
+      "Programming Language :: Python :: 3.5",
+      "Programming Language :: Python :: 3.6",
+      "Programming Language :: Python :: 3.7",
+      "Topic :: Scientific/Engineering"
+    ],
+    "id": "pandas",
+    "issued": {
+      "date-parts": [
+        [
+          2018,
+          8,
+          4
+        ]
+      ]
+    },
+    "original-date": {
+      "date-parts": [
+        [
+          2009,
+          12,
+          25
+        ]
+      ]
+    },
+    "publisher": "pandas.pydata.org",
+    "title": "pandas",
+    "type": "webpage",
+    "version": "0.23.4"
+  }
+]
+9.  @Manual{,
+    title = {tidyverse: Easily Install and Load the 'Tidyverse'},
+    author = {Hadley Wickham},
+    year = {2017},
+    note = {R package version 1.2.1},
+    url = {https://CRAN.R-project.org/package=tidyverse},
+  }
+10. @Manual{,
+    title = {caret: Classification and Regression Training},
+    author = {Max Kuhn. Contributions from Jed Wing and Steve Weston and Andre Williams and Chris Keefer and Allan Engelhardt and Tony Cooper and Zachary Mayer and Brenton Kenkel and the R Core Team and Michael Benesty and Reynald Lescarbeau and Andrew Ziem and Luca Scrucca and Yuan Tang and Can Candan and Tyler Hunt.},
+    year = {2019},
+    note = {R package version 6.0-84},
+    url = {https://CRAN.R-project.org/package=caret},
+  }
+11. @Article{,
+    title = {tidytext: Text Mining and Analysis Using Tidy Data Principles in R},
+    author = {Julia Silge and David Robinson},
+    doi = {10.21105/joss.00037},
+    url = {http://dx.doi.org/10.21105/joss.00037},
+    year = {2016},
+    publisher = {The Open Journal},
+    volume = {1},
+    number = {3},
+    journal = {JOSS},
+  }
+12. Cohen, Raviv, and Derek Ruths. 2013. “Classifying Political Orientation on Twitter: It’s Not Easy!” In Seventh International AAAI Conference on Weblogs and Social Media. https://www.aaai.org/ocs/index.php/ICWSM/ICWSM13/paper/view/6128.
+13. @Article{,
+    title = {Dates and Times Made Easy with {lubridate}},
+    author = {Garrett Grolemund and Hadley Wickham},
+    journal = {Journal of Statistical Software},
+    year = {2011},
+    volume = {40},
+    number = {3},
+    pages = {1--25},
+    url = {http://www.jstatsoft.org/v40/i03/},
+  }
+14. @Manual{,
+    title = {recipes: Preprocessing Tools to Create Design Matrices},
+    author = {Max Kuhn and Hadley Wickham},
+    year = {2019},
+    note = {R package version 0.1.7},
+    url = {https://CRAN.R-project.org/package=recipes},
+  }
+15. @Manual{,
+    title = {here: A Simpler Way to Find Your Files},
+    author = {Kirill Müller},
+    year = {2017},
+    note = {R package version 0.1},
+    url = {https://CRAN.R-project.org/package=here},
+  }
+16. @Manual{,
+    title = {fastDummies: Fast Creation of Dummy (Binary) Columns and Rows from
+Categorical Variables},
+    author = {Jacob Kaplan},
+    year = {2019},
+    note = {R package version 1.6.0},
+    url = {https://CRAN.R-project.org/package=fastDummies},
+  }
+17. @Manual{,
+    title = {caret: Classification and Regression Training},
+    author = {Max Kuhn. Contributions from Jed Wing and Steve Weston and Andre Williams and Chris Keefer and Allan Engelhardt and Tony Cooper and Zachary Mayer and Brenton Kenkel and the R Core Team and Michael Benesty and Reynald Lescarbeau and Andrew Ziem and Luca Scrucca and Yuan Tang and Can Candan and Tyler Hunt.},
+    year = {2019},
+    note = {R package version 6.0-84},
+    url = {https://CRAN.R-project.org/package=caret},
+  }
+18.  @Article{,
+    title = {{ranger}: A Fast Implementation of Random Forests for High Dimensional Data in {C++} and {R}},
+    author = {Marvin N. Wright and Andreas Ziegler},
+    journal = {Journal of Statistical Software},
+    year = {2017},
+    volume = {77},
+    number = {1},
+    pages = {1--17},
+    doi = {10.18637/jss.v077.i01},
+  }
+19.   @Article{,
+    title = {Reshaping Data with the {reshape} Package},
+    author = {Hadley Wickham},
+    journal = {Journal of Statistical Software},
+    year = {2007},
+    volume = {21},
+    number = {12},
+    pages = {1--20},
+    url = {http://www.jstatsoft.org/v21/i12/},
+  }
+21.   @Article{,
+    title = {{topicmodels}: An {R} Package for Fitting Topic Models},
+    author = {Bettina Gr\"un and Kurt Hornik},
+    journal = {Journal of Statistical Software},
+    year = {2011},
+    volume = {40},
+    number = {13},
+    pages = {1--30},
+    doi = {10.18637/jss.v040.i13},
+  }
+22.   @Article{,
+    title = {quanteda: An R package for the quantitative analysis of textual data},
+    journal = {Journal of Open Source Software},
+    author = {Kenneth Benoit and Kohei Watanabe and Haiyan Wang and Paul Nulty and Adam Obeng and Stefan Müller and Akitaka Matsuo},
+    doi = {10.21105/joss.00774},
+    url = {https://quanteda.io},
+    volume = {3},
+    number = {30},
+    pages = {774},
+    year = {2018},
+  }
